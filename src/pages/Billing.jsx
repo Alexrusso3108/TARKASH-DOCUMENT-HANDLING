@@ -1,0 +1,276 @@
+import { useState, useEffect, useCallback } from 'react'
+import { Search, Plus, Receipt, X, CheckCircle, Download, Loader } from 'lucide-react'
+import { api } from '../api'
+
+const STATUS_STYLES = {
+  Paid: { bg: 'rgba(16,185,129,0.1)', color: '#059669', label: 'Paid' },
+  Pending: { bg: 'rgba(245,158,11,0.1)', color: '#b45309', label: 'Pending' },
+  Partial: { bg: 'rgba(99,102,241,0.1)', color: '#4338ca', label: 'Partial' },
+  Overdue: { bg: 'rgba(239,68,68,0.1)', color: '#dc2626', label: 'Overdue' },
+}
+
+function BillModal({ bill, onClose, onMarkPaid }) {
+  if (!bill) return null
+  const total = Number(bill.total_amount) || 0
+  const paid = Number(bill.paid_amount) || 0
+  const balance = total - paid
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal modal-lg">
+        <div className="modal-header">
+          <div>
+            <h4 style={{ color: 'var(--gray-900)', fontWeight: 700 }}>Invoice {bill.id}</h4>
+            <p style={{ fontSize: '0.8rem', color: 'var(--gray-400)', marginTop: 2 }}>
+              {bill.created_at ? new Date(bill.created_at).toLocaleDateString('en-IN') : '—'} · {bill.type}
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button className="btn btn-secondary btn-sm"><Download size={13} /> Download PDF</button>
+            <button className="btn btn-ghost btn-icon" onClick={onClose}><X size={18} /></button>
+          </div>
+        </div>
+        <div className="modal-body">
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', padding: '1.25rem', background: 'var(--gray-50)', borderRadius: 'var(--radius-xl)', flexWrap: 'wrap', gap: '1rem' }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--gray-900)' }}>{bill.patient_name}</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--gray-500)' }}>{bill.patient_id}</div>
+              {bill.payment_method && <div style={{ fontSize: '0.8rem', color: 'var(--primary-600)', marginTop: '0.25rem', fontWeight: 600 }}>Payment: {bill.payment_method}</div>}
+            </div>
+            <span style={{ background: STATUS_STYLES[bill.status]?.bg, color: STATUS_STYLES[bill.status]?.color, fontSize: '0.875rem', fontWeight: 700, padding: '0.375rem 0.875rem', borderRadius: 999, alignSelf: 'flex-start' }}>
+              {STATUS_STYLES[bill.status]?.label || bill.status}
+            </span>
+          </div>
+          <div style={{ background: 'var(--gray-50)', borderRadius: 'var(--radius-lg)', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.625rem', maxWidth: 320, marginLeft: 'auto' }}>
+            {[
+              ['Total Amount', `Rs ${total.toLocaleString()}`],
+              ['Amount Paid', `Rs ${paid.toLocaleString()}`],
+              ['Balance Due', `Rs ${balance.toLocaleString()}`],
+            ].map(([label, val], i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', color: i === 2 && balance > 0 ? '#dc2626' : 'var(--gray-600)' }}>
+                <span>{label}</span><span style={{ fontWeight: i === 2 ? 800 : 600 }}>{val}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>Close</button>
+          {bill.status !== 'Paid' && (
+            <button className="btn btn-teal" onClick={() => onMarkPaid(bill.id)}>
+              <CheckCircle size={14} /> Mark as Paid
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function NewBillModal({ patients, onClose, onSave }) {
+  const [form, setForm] = useState({ patient_id: '', total_amount: '', paid_amount: '', payment_method: 'Cash', type: 'OPD' })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+  const h = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const handleSubmit = async () => {
+    if (!form.patient_id || !form.total_amount) { setError('Patient and total amount are required.'); return }
+    setSaving(true); setError(null)
+    try {
+      const bill = await api.createBilling({ ...form, total_amount: parseFloat(form.total_amount), paid_amount: parseFloat(form.paid_amount) || 0 })
+      onSave(bill); onClose()
+    } catch (e) { setError(e.message) } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div className="modal-header">
+          <div>
+            <h4 style={{ color: 'var(--gray-900)', fontWeight: 700 }}>Generate Invoice</h4>
+            <p style={{ fontSize: '0.8rem', color: 'var(--gray-400)', marginTop: 2 }}>Create a billing record for a patient</p>
+          </div>
+          <button className="btn btn-ghost btn-icon" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="modal-body">
+          {error && <div style={{ background: 'rgba(239,68,68,0.08)', color: '#dc2626', padding: '0.75rem 1rem', borderRadius: 'var(--radius-lg)', marginBottom: '1rem', fontSize: '0.875rem' }}>{error}</div>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div className="form-group">
+              <label className="form-label">Patient*</label>
+              <select className="form-input form-select" value={form.patient_id} onChange={e => h('patient_id', e.target.value)}>
+                <option value="">Select patient</option>
+                {patients.map(p => <option key={p.id} value={p.id}>{p.name} ({p.id})</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Billing Type</label>
+              <select className="form-input form-select" value={form.type} onChange={e => h('type', e.target.value)}>
+                <option>OPD</option><option>IPD</option><option>Lab</option><option>Pharmacy</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Total Amount (Rs)*</label>
+              <input className="form-input" type="number" placeholder="e.g. 5000" value={form.total_amount} onChange={e => h('total_amount', e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Amount Paid (Rs)</label>
+              <input className="form-input" type="number" placeholder="e.g. 2500" value={form.paid_amount} onChange={e => h('paid_amount', e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Payment Method</label>
+              <select className="form-input form-select" value={form.payment_method} onChange={e => h('payment_method', e.target.value)}>
+                {['Cash', 'Card', 'UPI', 'Insurance', 'Cheque', 'NEFT'].map(m => <option key={m}>{m}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleSubmit} disabled={saving}>
+            {saving ? <Loader size={14} className="spin" /> : <Plus size={14} />} Generate Invoice
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function Billing() {
+  const [bills, setBills] = useState([])
+  const [patients, setPatients] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('All')
+  const [selectedBill, setSelectedBill] = useState(null)
+  const [showModal, setShowModal] = useState(false)
+
+  const fetchData = useCallback(async () => {
+    setLoading(true); setError(null)
+    try {
+      const params = {}
+      if (statusFilter !== 'All') params.status = statusFilter
+      if (search) params.search = search
+      const data = await api.getBilling(params)
+      setBills(data)
+    } catch (e) { setError(e.message) } finally { setLoading(false) }
+  }, [search, statusFilter])
+
+  useEffect(() => {
+    const t = setTimeout(fetchData, 300)
+    return () => clearTimeout(t)
+  }, [fetchData])
+
+  useEffect(() => {
+    api.getPatients().then(setPatients).catch(() => { })
+  }, [])
+
+  const handleSave = (bill) => setBills(b => [bill, ...b])
+
+  const handleMarkPaid = async (id) => {
+    try {
+      const updated = await api.updateBilling(id, { status: 'Paid', paid_amount: bills.find(b => b.id === id)?.total_amount })
+      setBills(b => b.map(bill => bill.id === id ? { ...bill, ...updated } : bill))
+      setSelectedBill(null)
+    } catch (e) { alert('Failed to update: ' + e.message) }
+  }
+
+  const totalRevenue = bills.filter(b => b.status === 'Paid').reduce((s, b) => s + Number(b.total_amount || 0), 0)
+  const totalPending = bills.filter(b => b.status === 'Pending').reduce((s, b) => s + Number(b.total_amount || 0) - Number(b.paid_amount || 0), 0)
+
+  return (
+    <div className="animate-fadeInUp">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Billing</h1>
+          <p className="page-subtitle">Invoice management, payments, and financial records</p>
+        </div>
+        <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={15} /> Generate Invoice</button>
+      </div>
+
+      <div className="grid grid-4" style={{ gap: '1rem', marginBottom: '1.5rem' }}>
+        {[
+          { label: 'Total Invoices', val: bills.length, color: 'var(--gray-700)', bg: 'var(--gray-50)' },
+          { label: 'Revenue Collected', val: `Rs ${(totalRevenue / 100000).toFixed(1)}L`, color: '#059669', bg: 'rgba(16,185,129,0.06)' },
+          { label: 'Pending Amount', val: `Rs ${(totalPending / 100000).toFixed(1)}L`, color: '#b45309', bg: 'rgba(245,158,11,0.06)' },
+          { label: 'Partial Payments', val: bills.filter(b => b.status === 'Partial').length, color: '#4338ca', bg: 'rgba(99,102,241,0.06)' },
+        ].map((s, i) => (
+          <div key={i} style={{ background: s.bg, borderRadius: 'var(--radius-xl)', padding: '1.25rem', border: '1px solid rgba(0,0,0,0.04)' }}>
+            <div style={{ fontSize: '1.75rem', fontWeight: 900, color: s.color, letterSpacing: '-0.04em', lineHeight: 1 }}>{s.val}</div>
+            <div style={{ fontSize: '0.8125rem', color: 'var(--gray-500)', marginTop: '0.375rem', fontWeight: 500 }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ position: 'relative', flex: 1, maxWidth: 360 }}>
+          <Search size={14} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--gray-400)' }} />
+          <input className="form-input" style={{ paddingLeft: '2.25rem' }} placeholder="Search by patient or invoice ID..." value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          {['All', 'Paid', 'Pending', 'Partial'].map(f => (
+            <button key={f} className={`btn btn-sm ${statusFilter === f ? 'btn-primary' : 'btn-secondary'}`}
+              style={{ textTransform: 'capitalize' }} onClick={() => setStatusFilter(f)}>
+              {STATUS_STYLES[f]?.label || f}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {error && <div style={{ padding: '1rem', background: 'rgba(239,68,68,0.06)', color: '#dc2626', borderRadius: 'var(--radius-lg)', marginBottom: '1.25rem', fontSize: '0.875rem' }}>⚠ {error}</div>}
+
+      <div className="card">
+        <div className="table-wrapper" style={{ border: 'none', borderRadius: 0 }}>
+          <table className="data-table">
+            <thead>
+              <tr><th>Invoice</th><th>Patient</th><th>Type</th><th>Total (Rs)</th><th>Paid (Rs)</th><th>Balance (Rs)</th><th>Payment</th><th>Date</th><th>Status</th><th>Action</th></tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={10} style={{ textAlign: 'center', padding: '3rem', color: 'var(--gray-400)' }}>
+                  <Loader size={20} className="spin" style={{ display: 'inline-block' }} />
+                </td></tr>
+              ) : bills.length === 0 ? (
+                <tr><td colSpan={10} style={{ textAlign: 'center', padding: '3rem', color: 'var(--gray-400)' }}>No invoices found</td></tr>
+              ) : bills.map(bill => {
+                const total = Number(bill.total_amount) || 0
+                const paid = Number(bill.paid_amount) || 0
+                const balance = total - paid
+                return (
+                  <tr key={bill.id}>
+                    <td><span style={{ fontFamily: 'monospace', fontSize: '0.8125rem', color: 'var(--primary-600)', fontWeight: 600 }}>{bill.id}</span></td>
+                    <td>
+                      <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--gray-800)' }}>{bill.patient_name}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--gray-400)' }}>{bill.patient_id}</div>
+                    </td>
+                    <td>
+                      <span style={{ background: bill.type === 'IPD' ? 'var(--primary-50)' : 'rgba(13,148,136,0.08)', color: bill.type === 'IPD' ? 'var(--primary-700)' : 'var(--accent-teal)', fontSize: '0.7rem', fontWeight: 700, padding: '0.2rem 0.5rem', borderRadius: 999 }}>{bill.type}</span>
+                    </td>
+                    <td style={{ fontWeight: 700, color: 'var(--gray-900)', fontSize: '0.9rem' }}>{total.toLocaleString()}</td>
+                    <td style={{ fontWeight: 600, color: '#059669', fontSize: '0.875rem' }}>{paid.toLocaleString()}</td>
+                    <td style={{ fontWeight: balance > 0 ? 700 : 400, color: balance > 0 ? '#dc2626' : 'var(--gray-400)', fontSize: '0.875rem' }}>{balance.toLocaleString()}</td>
+                    <td style={{ fontSize: '0.8rem', color: 'var(--gray-500)' }}>{bill.payment_method || '—'}</td>
+                    <td style={{ fontSize: '0.8rem', color: 'var(--gray-400)', whiteSpace: 'nowrap' }}>
+                      {bill.created_at ? new Date(bill.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                    </td>
+                    <td><span style={{ background: STATUS_STYLES[bill.status]?.bg, color: STATUS_STYLES[bill.status]?.color, fontSize: '0.7rem', fontWeight: 700, padding: '0.2rem 0.5rem', borderRadius: 999 }}>{STATUS_STYLES[bill.status]?.label || bill.status}</span></td>
+                    <td>
+                      <button className="btn btn-secondary btn-sm" style={{ padding: '0.3rem 0.625rem', fontSize: '0.75rem' }} onClick={() => setSelectedBill(bill)}>
+                        <Receipt size={12} /> View
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="card-footer">
+          <span style={{ fontSize: '0.8125rem', color: 'var(--gray-500)' }}>Showing {bills.length} invoices</span>
+        </div>
+      </div>
+
+      {selectedBill && <BillModal bill={selectedBill} onClose={() => setSelectedBill(null)} onMarkPaid={handleMarkPaid} />}
+      {showModal && <NewBillModal patients={patients} onClose={() => setShowModal(false)} onSave={handleSave} />}
+    </div>
+  )
+}
