@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Pen, Eraser, Undo2, Trash2, Save, CheckCircle, Loader,
-  ChevronLeft, ChevronRight, ZoomIn, ZoomOut, X, Lock,
+  ChevronLeft, ChevronRight, ZoomIn, ZoomOut, X, Lock, Maximize2,
 } from 'lucide-react'
 import { api } from '../api'
 import { useAuth } from '../context/AuthContext'
@@ -250,9 +250,11 @@ export default function FormViewer({ formInstance, onClose, onAnnotationsSaved }
   const [pdfDoc, setPdfDoc] = useState(null)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
-  const [scale, setScale] = useState(1.5)
+  const [scale, setScale] = useState(1.0)
+  const [fitScale, setFitScale] = useState(1.0)   // computed fit-to-width scale
   const [loadingPdf, setLoadingPdf] = useState(true)
   const [pdfError, setPdfError] = useState(null)
+  const containerRef = useRef(null)
   // All annotations across all pages (with .page field)
   const [annotations, setAnnotations] = useState(
     Array.isArray(formInstance.annotations) ? formInstance.annotations : []
@@ -263,6 +265,15 @@ export default function FormViewer({ formInstance, onClose, onAnnotationsSaved }
 
   // ── Read admin flag from auth context ────────────────────────────────────
   const { isAdmin } = useAuth()
+
+  // canErase rule:
+  //   - Admin: always can erase
+  //   - Non-admin: can erase ONLY while the form has no saved annotations yet
+  //     (i.e. blank/fresh form). Once saved data exists, eraser is locked.
+  //     `annotations` is live state — updates after every Save, so this
+  //     correctly locks the eraser the moment a non-admin saves for the first time.
+  const canErase = isAdmin || annotations.length === 0
+
 
   const pdfUrl = `http://localhost:5000${formInstance.file_path}`
 
@@ -298,19 +309,33 @@ export default function FormViewer({ formInstance, onClose, onAnnotationsSaved }
 
     pdfDoc.getPage(page).then(pdfPage => {
       if (cancelled) return
-      const viewport = pdfPage.getViewport({ scale })
+
+      // On first page, compute a fit-to-width scale
+      let renderScale = scale
+      if (page === 1 && containerRef.current) {
+        const containerWidth = containerRef.current.clientWidth - 32 // 16px padding each side
+        const naturalViewport = pdfPage.getViewport({ scale: 1 })
+        const computed = Math.max(0.5, Math.min(3, containerWidth / naturalViewport.width))
+        // Only auto-fit on very first render (when scale is still default 1.0)
+        if (scale === 1.0) {
+          renderScale = computed
+          setFitScale(computed)
+          setScale(computed)
+          return // will re-run with new scale
+        }
+        setFitScale(computed)
+      }
+
+      const viewport = pdfPage.getViewport({ scale: renderScale })
       const pdfCanvas = document.getElementById(`pdf-canvas-${page}`)
       if (!pdfCanvas) return
 
-      // Size the PDF canvas
       pdfCanvas.width = viewport.width
       pdfCanvas.height = viewport.height
 
-      // Render PDF page
       const renderTask = pdfPage.render({ canvasContext: pdfCanvas.getContext('2d'), viewport })
       renderTask.promise.then(() => {
         if (cancelled) return
-        // NOW tell InkCanvas what size to use — it will resize itself and redraw
         setViewportSize({ width: viewport.width, height: viewport.height })
       }).catch(() => { })
     })
@@ -367,7 +392,7 @@ export default function FormViewer({ formInstance, onClose, onAnnotationsSaved }
         </div>
         {/* Zoom */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-          <button onClick={() => setScale(s => Math.max(0.6, +(s - 0.25).toFixed(2)))}
+          <button onClick={() => setScale(s => Math.max(0.4, +(s - 0.25).toFixed(2)))}
             style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 7, width: 32, height: 32, cursor: 'pointer', color: 'rgba(255,255,255,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <ZoomOut size={14} />
           </button>
@@ -376,6 +401,10 @@ export default function FormViewer({ formInstance, onClose, onAnnotationsSaved }
             style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 7, width: 32, height: 32, cursor: 'pointer', color: 'rgba(255,255,255,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <ZoomIn size={14} />
           </button>
+          <button onClick={() => setScale(fitScale)} title="Fit to width"
+            style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 7, width: 32, height: 32, cursor: 'pointer', color: 'rgba(255,255,255,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: 2 }}>
+            <Maximize2 size={13} />
+          </button>
         </div>
         <button onClick={onClose} style={{ background: 'rgba(239,68,68,0.15)', border: 'none', borderRadius: 8, width: 36, height: 36, cursor: 'pointer', color: '#f87171', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <X size={18} />
@@ -383,7 +412,7 @@ export default function FormViewer({ formInstance, onClose, onAnnotationsSaved }
       </div>
 
       {/* Content */}
-      <div style={{ flex: 1, overflow: 'hidden' }}>
+      <div ref={containerRef} style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '1rem', background: '#1e293b' }}>
         {loadingPdf ? (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'rgba(255,255,255,0.4)' }}>
             <Loader size={28} className="spin" style={{ display: 'inline-block' }} />
@@ -392,15 +421,17 @@ export default function FormViewer({ formInstance, onClose, onAnnotationsSaved }
         ) : pdfError ? (
           <div style={{ textAlign: 'center', padding: '4rem', color: '#f87171' }}>{pdfError}</div>
         ) : (
-          <InkCanvas
-            key={`${formInstance.id}-p${page}`}
-            formId={formInstance.id}
-            initialAnnotations={pageAnnotations}
-            pdfPage={page}
-            viewportSize={viewportSize}
-            onSave={handleSave}
-            canErase={isAdmin}
-          />
+          <div style={{ width: viewportSize ? viewportSize.width : '100%', maxWidth: '100%', flexShrink: 0 }}>
+            <InkCanvas
+              key={`${formInstance.id}-p${page}`}
+              formId={formInstance.id}
+              initialAnnotations={pageAnnotations}
+              pdfPage={page}
+              viewportSize={viewportSize}
+              onSave={handleSave}
+              canErase={isAdmin}
+            />
+          </div>
         )}
       </div>
     </div>

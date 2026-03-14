@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=dscribe_hms
+      - DB_USER=postgres
+      - DB_PASSWORD=root_password
+      - JWT_SECRET=change_this_to_a_secure_random_string_in_production
+      - NODE_ENV=production
+    depends_on:
+      - postgres
+    volumes:
+      # Use a named volume for uploads so PDFs persist across container restarts
+      - uploads_data:/app/server/uploads
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=root_password
+      - POSTGRES_DB=dscribe_hms
+    ports:
+      - "5432:5432"
+    volumes:
+      # Data persistence for postgres
+      - pgdata:/var/lib/postgresql/data
+      # Mount the schema / seed data we created earlier to auto-initialize!
+      - ./server/dscribe_hms_import.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  uploads_data:

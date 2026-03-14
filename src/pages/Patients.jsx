@@ -194,18 +194,14 @@ function PatientPanel({ patient, onClose }) {
         />
       )}
 
-      {/* Backdrop */}
-      <div
-        onClick={onClose}
-        style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.45)', zIndex: 150, backdropFilter: 'blur(2px)' }}
-      />
-
-      {/* Slide-in Panel */}
+      {/* Inline Side Panel */}
       <div style={{
-        position: 'fixed', top: 0, right: 0, bottom: 0, width: 520, maxWidth: '95vw',
-        background: '#fff', zIndex: 151, display: 'flex', flexDirection: 'column',
-        boxShadow: '-8px 0 40px rgba(0,0,0,0.18)',
+        display: 'flex', flexDirection: 'column', height: '100%',
+        background: '#fff', borderRadius: 'var(--radius-xl)',
+        border: '1px solid var(--gray-100)',
+        boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
         animation: 'slideInLeft 280ms cubic-bezier(0.34,1.12,0.64,1)',
+        minHeight: 0, overflow: 'hidden',
       }}>
         {/* Panel Header */}
         <div style={{
@@ -417,6 +413,7 @@ function PatientPanel({ patient, onClose }) {
   )
 }
 
+
 // ─── Main Patients Page ──────────────────────────────────────────────────────
 export default function Patients() {
   const [patients, setPatients] = useState([])
@@ -442,6 +439,9 @@ export default function Patients() {
   }, [fetchData])
 
   const handleSave = (newPatient) => setPatients(p => [newPatient, ...p])
+
+  // Columns to hide when panel is open (to save space in the table)
+  const panelOpen = !!selectedPatient
 
   return (
     <div className="animate-fadeInUp">
@@ -470,105 +470,119 @@ export default function Patients() {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="card">
-        {error && (
-          <div style={{ padding: '1.25rem', background: 'rgba(239,68,68,0.06)', color: '#dc2626', fontSize: '0.875rem' }}>
-            ⚠ Could not load patients: {error}. Make sure the API server is running.
-          </div>
-        )}
-        <div className="table-wrapper" style={{ border: 'none', borderRadius: 0 }}>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Patient</th><th>ID</th><th>Blood</th><th>Type</th>
-                <th>Department</th><th>Doctor</th><th>Admitted</th><th>Status</th><th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={9} style={{ textAlign: 'center', padding: '3rem', color: 'var(--gray-400)' }}>
-                  <Loader size={20} className="spin" style={{ display: 'inline-block' }} />
-                </td></tr>
-              ) : patients.length === 0 ? (
-                <tr><td colSpan={9} style={{ textAlign: 'center', padding: '3rem', color: 'var(--gray-400)' }}>No patients found</td></tr>
-              ) : patients.map(p => (
-                <tr
-                  key={p.id}
-                  style={{ background: selectedPatient?.id === p.id ? 'var(--primary-50)' : undefined, cursor: 'pointer' }}
-                  onClick={() => setSelectedPatient(p)}
-                >
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-                      <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg, var(--primary-100), var(--primary-200))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6875rem', fontWeight: 700, color: 'var(--primary-700)', flexShrink: 0 }}>
-                        {p.name.split(' ').map(n => n[0]).join('')}
-                      </div>
-                      <div>
-                        <div style={{ fontWeight: 600, color: 'var(--gray-800)', fontSize: '0.875rem' }}>{p.name}</div>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--gray-400)' }}>Age {p.age} · {p.gender}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td><span style={{ fontFamily: 'monospace', fontSize: '0.8125rem', color: 'var(--gray-500)' }}>{p.id}</span></td>
-                  <td>
-                    <span style={{ background: 'rgba(239,68,68,0.08)', color: '#dc2626', fontSize: '0.75rem', fontWeight: 700, padding: '0.2rem 0.5rem', borderRadius: 999 }}>
-                      {p.blood_group}
-                    </span>
-                  </td>
-                  <td>
-                    <span style={{ background: p.admission_type === 'IPD' ? 'var(--primary-50)' : 'rgba(13,148,136,0.08)', color: p.admission_type === 'IPD' ? 'var(--primary-700)' : 'var(--accent-teal)', fontSize: '0.7rem', fontWeight: 700, padding: '0.2rem 0.5rem', borderRadius: 999 }}>
-                      {p.admission_type}
-                    </span>
-                  </td>
-                  <td style={{ fontSize: '0.8125rem', color: 'var(--gray-600)' }}>{p.department}</td>
-                  <td style={{ fontSize: '0.8125rem', color: 'var(--gray-600)' }}>{p.doctor_name || '—'}</td>
-                  <td style={{ fontSize: '0.8125rem', color: 'var(--gray-400)', whiteSpace: 'nowrap' }}>
-                    {p.admitted_at ? new Date(p.admitted_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
-                  </td>
-                  <td>
-                    <span style={{ background: STATUS_STYLES[p.status]?.bg, color: STATUS_STYLES[p.status]?.color, fontSize: '0.6875rem', fontWeight: 700, padding: '0.2rem 0.5rem', borderRadius: 999, textTransform: 'uppercase' }}>
-                      {p.status}
-                    </span>
-                  </td>
-                  <td onClick={e => e.stopPropagation()}>
-                    <div style={{ display: 'flex', gap: '0.375rem' }}>
-                      <button
-                        className="btn btn-ghost btn-icon-sm"
-                        title="View Details & Forms"
-                        onClick={() => setSelectedPatient(p)}
-                        style={{ color: selectedPatient?.id === p.id ? 'var(--primary-600)' : undefined }}
-                      >
-                        <Eye size={13} />
-                      </button>
-                      <button className="btn btn-ghost btn-icon-sm" title="Forms" onClick={() => { setSelectedPatient(p) }}>
-                        <ClipboardList size={13} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="card-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: '0.8125rem', color: 'var(--gray-500)' }}>
-            Showing {patients.length} patient{patients.length !== 1 ? 's' : ''}
-          </span>
-          {selectedPatient && (
-            <span style={{ fontSize: '0.8rem', color: 'var(--primary-600)', fontWeight: 600 }}>
-              Viewing: {selectedPatient.name}
-            </span>
+      {/* Split-pane layout: table left, detail panel right */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: panelOpen ? '1fr 480px' : '1fr',
+        gap: '1.25rem',
+        alignItems: 'start',
+        transition: 'grid-template-columns 300ms ease',
+      }}>
+        {/* Table */}
+        <div className="card" style={{ minWidth: 0 }}>
+          {error && (
+            <div style={{ padding: '1.25rem', background: 'rgba(239,68,68,0.06)', color: '#dc2626', fontSize: '0.875rem' }}>
+              ⚠ Could not load patients: {error}. Make sure the API server is running.
+            </div>
           )}
+          <div className="table-wrapper" style={{ border: 'none', borderRadius: 0 }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Patient</th><th>ID</th><th>Blood</th><th>Type</th>
+                  {!panelOpen && <><th>Department</th><th>Doctor</th><th>Admitted</th></>}
+                  <th>Status</th><th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr><td colSpan={panelOpen ? 6 : 9} style={{ textAlign: 'center', padding: '3rem', color: 'var(--gray-400)' }}>
+                    <Loader size={20} className="spin" style={{ display: 'inline-block' }} />
+                  </td></tr>
+                ) : patients.length === 0 ? (
+                  <tr><td colSpan={panelOpen ? 6 : 9} style={{ textAlign: 'center', padding: '3rem', color: 'var(--gray-400)' }}>No patients found</td></tr>
+                ) : patients.map(p => (
+                  <tr
+                    key={p.id}
+                    style={{ background: selectedPatient?.id === p.id ? 'var(--primary-50)' : undefined, cursor: 'pointer' }}
+                    onClick={() => setSelectedPatient(prev => prev?.id === p.id ? null : p)}
+                  >
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+                        <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg, var(--primary-100), var(--primary-200))', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.6875rem', fontWeight: 700, color: 'var(--primary-700)', flexShrink: 0 }}>
+                          {p.name.split(' ').map(n => n[0]).join('')}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: 600, color: 'var(--gray-800)', fontSize: '0.875rem' }}>{p.name}</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--gray-400)' }}>Age {p.age} · {p.gender}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td><span style={{ fontFamily: 'monospace', fontSize: '0.8125rem', color: 'var(--gray-500)' }}>{p.id}</span></td>
+                    <td>
+                      <span style={{ background: 'rgba(239,68,68,0.08)', color: '#dc2626', fontSize: '0.75rem', fontWeight: 700, padding: '0.2rem 0.5rem', borderRadius: 999 }}>
+                        {p.blood_group}
+                      </span>
+                    </td>
+                    <td>
+                      <span style={{ background: p.admission_type === 'IPD' ? 'var(--primary-50)' : 'rgba(13,148,136,0.08)', color: p.admission_type === 'IPD' ? 'var(--primary-700)' : 'var(--accent-teal)', fontSize: '0.7rem', fontWeight: 700, padding: '0.2rem 0.5rem', borderRadius: 999 }}>
+                        {p.admission_type}
+                      </span>
+                    </td>
+                    {!panelOpen && (
+                      <>
+                        <td style={{ fontSize: '0.8125rem', color: 'var(--gray-600)' }}>{p.department}</td>
+                        <td style={{ fontSize: '0.8125rem', color: 'var(--gray-600)' }}>{p.doctor_name || '—'}</td>
+                        <td style={{ fontSize: '0.8125rem', color: 'var(--gray-400)', whiteSpace: 'nowrap' }}>
+                          {p.admitted_at ? new Date(p.admitted_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                        </td>
+                      </>
+                    )}
+                    <td>
+                      <span style={{ background: STATUS_STYLES[p.status]?.bg, color: STATUS_STYLES[p.status]?.color, fontSize: '0.6875rem', fontWeight: 700, padding: '0.2rem 0.5rem', borderRadius: 999, textTransform: 'uppercase' }}>
+                        {p.status}
+                      </span>
+                    </td>
+                    <td onClick={e => e.stopPropagation()}>
+                      <div style={{ display: 'flex', gap: '0.375rem' }}>
+                        <button
+                          className="btn btn-ghost btn-icon-sm"
+                          title="View Details & Forms"
+                          onClick={() => setSelectedPatient(prev => prev?.id === p.id ? null : p)}
+                          style={{ color: selectedPatient?.id === p.id ? 'var(--primary-600)' : undefined }}
+                        >
+                          <Eye size={13} />
+                        </button>
+                        <button className="btn btn-ghost btn-icon-sm" title="Forms" onClick={() => setSelectedPatient(prev => prev?.id === p.id ? null : p)}>
+                          <ClipboardList size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="card-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: '0.8125rem', color: 'var(--gray-500)' }}>
+              Showing {patients.length} patient{patients.length !== 1 ? 's' : ''}
+            </span>
+            {selectedPatient && (
+              <span style={{ fontSize: '0.8rem', color: 'var(--primary-600)', fontWeight: 600 }}>
+                Viewing: {selectedPatient.name}
+              </span>
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* Slide-in Patient Detail Panel */}
-      {selectedPatient && (
-        <PatientPanel
-          patient={selectedPatient}
-          onClose={() => setSelectedPatient(null)}
-        />
-      )}
+        {/* Inline Patient Detail Panel */}
+        {selectedPatient && (
+          <PatientPanel
+            patient={selectedPatient}
+            onClose={() => setSelectedPatient(null)}
+          />
+        )}
+      </div>
 
       {showModal && <AdmitModal doctors={doctors} onClose={() => setShowModal(false)} onSave={handleSave} />}
     </div>

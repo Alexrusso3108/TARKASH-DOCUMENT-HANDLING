@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>dScribe HMS — Database Schema & Connection Guide</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+    :root {
+      --blue: #2563eb;
+      --indigo: #4f46e5;
+      --teal: #0d9488;
+      --red: #dc2626;
+      --amber: #d97706;
+      --green: #16a34a;
+      --gray-50: #f8fafc;
+      --gray-100: #f1f5f9;
+      --gray-200: #e2e8f0;
+      --gray-300: #cbd5e1;
+      --gray-500: #64748b;
+      --gray-700: #334155;
+      --gray-900: #0f172a;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      color: var(--gray-900);
+      background: #fff;
+      padding: 48px 56px;
+      line-height: 1.6;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    /* ── COVER ── */
+    .cover {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 12px;
+      padding-bottom: 32px;
+      border-bottom: 3px solid var(--blue);
+      margin-bottom: 36px;
+    }
+
+    .cover-badge {
+      background: linear-gradient(135deg, #2563eb, #4f46e5);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      padding: 4px 12px;
+      border-radius: 20px;
+    }
+
+    .cover h1 {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--gray-900);
+      line-height: 1.2;
+    }
+
+    .cover h1 span {
+      color: var(--blue);
+    }
+
+    .cover .subtitle {
+      font-size: 13px;
+      color: var(--gray-500);
+    }
+
+    .cover .meta {
+      display: flex;
+      gap: 24px;
+      margin-top: 4px;
+    }
+
+    .cover .meta-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .cover .meta-item label {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--gray-500);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+
+    .cover .meta-item span {
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    /* ── SECTIONS ── */
+    h2 {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--gray-900);
+      margin: 36px 0 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    h2::after {
+      content: '';
+      flex: 1;
+      height: 2px;
+      background: var(--gray-200);
+      border-radius: 2px;
+    }
+
+    h3 {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--gray-700);
+      margin: 22px 0 10px;
+    }
+
+    p {
+      margin-bottom: 10px;
+      color: var(--gray-700);
+    }
+
+    /* ── CALLOUTS ── */
+    .callout {
+      display: flex;
+      gap: 10px;
+      padding: 12px 14px;
+      border-radius: 8px;
+      margin: 14px 0;
+      font-size: 12px;
+    }
+
+    .callout-icon {
+      font-size: 16px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .callout-body {
+      line-height: 1.5;
+    }
+
+    .callout-body strong {
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .callout.warn {
+      background: #fef3c7;
+      border-left: 4px solid var(--amber);
+    }
+
+    .callout.info {
+      background: #eff6ff;
+      border-left: 4px solid var(--blue);
+    }
+
+    .callout.danger {
+      background: #fef2f2;
+      border-left: 4px solid var(--red);
+    }
+
+    .callout.success {
+      background: #f0fdf4;
+      border-left: 4px solid var(--green);
+    }
+
+    /* ── CREDENTIAL CARD ── */
+    .cred-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin: 14px 0;
+    }
+
+    .cred-card {
+      background: var(--gray-50);
+      border: 1px solid var(--gray-200);
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+
+    .cred-card label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      color: var(--gray-500);
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .cred-card .val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--blue);
+      word-break: break-all;
+    }
+
+    /* ── CODE BLOCKS ── */
+    pre {
+      background: #0f172a;
+      color: #e2e8f0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      line-height: 1.65;
+      padding: 18px 20px;
+      border-radius: 10px;
+      overflow-x: auto;
+      margin: 10px 0 20px;
+      page-break-inside: avoid;
+    }
+
+    code {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .kw {
+      color: #93c5fd;
+    }
+
+    .tp {
+      color: #6ee7b7;
+    }
+
+    .cm {
+      color: #64748b;
+      font-style: italic;
+    }
+
+    .str {
+      color: #fcd34d;
+    }
+
+    .fn {
+      color: #f9a8d4;
+    }
+
+    pre.env-block {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #94a3b8;
+    }
+
+    pre.env-block .key {
+      color: #7dd3fc;
+    }
+
+    pre.env-block .val {
+      color: #86efac;
+    }
+
+    pre.env-block .cmt {
+      color: #475569;
+    }
+
+    /* ── TABLES ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      margin: 12px 0 20px;
+      page-break-inside: avoid;
+    }
+
+    thead {
+      background: linear-gradient(135deg, #2563eb, #4f46e5);
+      color: #fff;
+    }
+
+    th {
+      padding: 10px 14px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 11px;
+      letter-spacing: .04em;
+    }
+
+    td {
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--gray-200);
+      vertical-align: top;
+    }
+
+    tr:nth-child(even) td {
+      background: var(--gray-50);
+    }
+
+    td code {
+      background: var(--gray-100);
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      color: var(--indigo);
+    }
+
+    /* ── OPTION CARDS ── */
+    .option-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin: 16px 0;
+    }
+
+    .option-card {
+      border: 1.5px solid var(--gray-200);
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .option-card.recommended {
+      border-color: var(--green);
+      background: #f0fdf4;
+    }
+
+    .option-card .badge {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 20px;
+      margin-bottom: 8px;
+      display: inline-block;
+    }
+
+    .badge-green {
+      background: #dcfce7;
+      color: var(--green);
+    }
+
+    .badge-amber {
+      background: #fef3c7;
+      color: var(--amber);
+    }
+
+    .badge-blue {
+      background: #dbeafe;
+      color: var(--blue);
+    }
+
+    .option-card h4 {
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .option-card p {
+      font-size: 11px;
+      margin: 0;
+      color: var(--gray-500);
+    }
+
+    /* ── STEPS ── */
+    .steps {
+      margin: 14px 0;
+    }
+
+    .step {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 10px;
+      align-items: flex-start;
+    }
+
+    .step-num {
+      width: 24px;
+      height: 24px;
+      background: linear-gradient(135deg, #2563eb, #4f46e5);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .step-body {
+      padding-top: 3px;
+      font-size: 12px;
+    }
+
+    .step-body code {
+      background: var(--gray-100);
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      color: var(--indigo);
+    }
+
+    /* ── ER DIAGRAM (SVG-based simple boxes) ── */
+    .er-wrap {
+      background: var(--gray-50);
+      border: 1px solid var(--gray-200);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+      margin: 14px 0;
+    }
+
+    /* ── PAGE BREAK ── */
+    .page-break {
+      page-break-after: always;
+    }
+
+    /* ── FOOTER ── */
+    .footer {
+      margin-top: 48px;
+      padding-top: 16px;
+      border-top: 1px solid var(--gray-200);
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      color: var(--gray-500);
+    }
+
+    /* ── PRINT STYLES ── */
+    @media print {
+      body {
+        padding: 32px 40px;
+      }
+
+      pre {
+        font-size: 10px;
+      }
+
+      .no-print {
+        display: none;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- PRINT BUTTON (hidden in print) -->
+  <div class="no-print" style="text-align:right;margin-bottom:24px;">
+    <button onclick="window.print()" style="
+    background: linear-gradient(135deg,#2563eb,#4f46e5);
+    color:#fff; border:none; padding:10px 24px;
+    border-radius:8px; font-size:13px; font-weight:600;
+    cursor:pointer; font-family:inherit; letter-spacing:.02em;
+  ">🖨️ Save as PDF (Ctrl+P)</button>
+  </div>
+
+  <!-- COVER -->
+  <div class="cover">
+    <span class="cover-badge">🏥 dScribe HMS</span>
+    <h1>Database Schema &amp; <span>Connection Guide</span></h1>
+    <p class="subtitle">Complete reference for all 12 tables, credentials, and sharing options</p>
+    <div class="meta">
+      <div class="meta-item">
+        <label>Generated</label>
+        <span>March 11, 2026</span>
+      </div>
+      <div class="meta-item">
+        <label>Database</label>
+        <span>PostgreSQL 15+</span>
+      </div>
+      <div class="meta-item">
+        <label>Tables</label>
+        <span>12 tables, 3 schema files</span>
+      </div>
+      <div class="meta-item">
+        <label>Project</label>
+        <span>dScribe HMS v1.0</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 1: CREDENTIALS -->
+  <h2>🔑 1. Database Connection Credentials</h2>
+
+  <div class="callout danger">
+    <span class="callout-icon">⚠️</span>
+    <div class="callout-body">
+      <strong>Important — Local Database Notice</strong>
+      The credentials below point to a local PostgreSQL instance. Your friend can only connect if you expose the
+      database to the internet or migrate to a cloud provider (see Section 4).
+    </div>
+  </div>
+
+  <div class="cred-grid">
+    <div class="cred-card">
+      <label>Host</label>
+      <div class="val">localhost</div>
+    </div>
+    <div class="cred-card">
+      <label>Port</label>
+      <div class="val">5433</div>
+    </div>
+    <div class="cred-card">
+      <label>Database Name</label>
+      <div class="val">dscribe_hms</div>
+    </div>
+    <div class="cred-card">
+      <label>Username</label>
+      <div class="val">postgres</div>
+    </div>
+    <div class="cred-card">
+      <label>Password</label>
+      <div class="val">admin123</div>
+    </div>
+    <div class="cred-card">
+      <label>JWT Secret</label>
+      <div class="val" style="font-size:10px;">dscribe_hms_super_secret_key_change_in_production_2026</div>
+    </div>
+  </div>
+
+  <h3>📄 .env file (paste this into the <code>server/</code> folder)</h3>
+  <pre class="env-block"><span class="cmt"># PostgreSQL Connection</span>
+<span class="key">DB_HOST</span>=<span class="val">&lt;YOUR_IP_OR_CLOUD_HOST&gt;</span>
+<span class="key">DB_PORT</span>=<span class="val">5433</span>
+<span class="key">DB_NAME</span>=<span class="val">dscribe_hms</span>
+<span class="key">DB_USER</span>=<span class="val">postgres</span>
+<span class="key">DB_PASSWORD</span>=<span class="val">admin123</span>
+
+<span class="cmt"># Server</span>
+<span class="key">PORT</span>=<span class="val">5000</span>
+
+<span class="cmt"># JWT</span>
+<span class="key">JWT_SECRET</span>=<span class="val">dscribe_hms_super_secret_key_change_in_production_2026</span>
+<span class="key">JWT_EXPIRY</span>=<span class="val">7d</span></pre>
+
+  <div class="page-break"></div>
+
+  <!-- SECTION 2: TABLE SUMMARY -->
+  <h2>📦 2. Table Summary (12 Tables)</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Schema File</th>
+        <th>Table Name</th>
+        <th>Purpose</th>
+        <th>Key Columns</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>schema.sql</code></td>
+        <td><code>doctors</code></td>
+        <td>Doctor profiles</td>
+        <td>id, name, department, status, rating</td>
+      </tr>
+      <tr>
+        <td><code>schema.sql</code></td>
+        <td><code>patients</code></td>
+        <td>Patient records</td>
+        <td>id, name, doctor_id, admission_type, status</td>
+      </tr>
+      <tr>
+        <td><code>schema.sql</code></td>
+        <td><code>beds</code></td>
+        <td>IPD bed management</td>
+        <td>id, ward, patient_id, status, has_alert</td>
+      </tr>
+      <tr>
+        <td><code>schema.sql</code></td>
+        <td><code>opd_visits</code></td>
+        <td>OPD consultation records</td>
+        <td>patient_id, doctor_id, visit_type, status, fee</td>
+      </tr>
+      <tr>
+        <td><code>schema.sql</code></td>
+        <td><code>clinical_notes</code></td>
+        <td>Doctor notes per patient</td>
+        <td>patient_id, doctor_id, note_type, priority</td>
+      </tr>
+      <tr>
+        <td><code>schema.sql</code></td>
+        <td><code>lab_tests</code></td>
+        <td>Lab orders &amp; results</td>
+        <td>patient_id, test_name, status, priority</td>
+      </tr>
+      <tr>
+        <td><code>schema.sql</code></td>
+        <td><code>pharmacy_inventory</code></td>
+        <td>Drug stock tracking</td>
+        <td>name, stock, expiry, price, status</td>
+      </tr>
+      <tr>
+        <td><code>schema.sql</code></td>
+        <td><code>billing</code></td>
+        <td>Patient billing records</td>
+        <td>patient_id, total_amount, paid_amount, status</td>
+      </tr>
+      <tr>
+        <td><code>schema-auth.sql</code></td>
+        <td><code>hospitals</code></td>
+        <td>Hospital registry</td>
+        <td>id, name, license_no, city, bed_count</td>
+      </tr>
+      <tr>
+        <td><code>schema-auth.sql</code></td>
+        <td><code>users</code></td>
+        <td>All staff login accounts</td>
+        <td>login_id, role, hospital_id, password_hash</td>
+      </tr>
+      <tr>
+        <td><code>schema-forms.sql</code></td>
+        <td><code>form_templates</code></td>
+        <td>Uploaded PDF form templates</td>
+        <td>name, category, file_path, is_active</td>
+      </tr>
+      <tr>
+        <td><code>schema-forms.sql</code></td>
+        <td><code>patient_forms</code></td>
+        <td>Annotated form instances per patient</td>
+        <td>template_id, patient_id, annotations (JSONB), status</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- RELATIONSHIPS -->
+  <h3>🔗 Table Relationships</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>From</th>
+        <th>→</th>
+        <th>To</th>
+        <th>Relationship</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>patients</code></td>
+        <td>→</td>
+        <td><code>doctors</code></td>
+        <td>Many patients per doctor (doctor_id FK)</td>
+      </tr>
+      <tr>
+        <td><code>beds</code></td>
+        <td>→</td>
+        <td><code>patients</code>, <code>doctors</code></td>
+        <td>Bed assigned to one patient & doctor</td>
+      </tr>
+      <tr>
+        <td><code>opd_visits</code></td>
+        <td>→</td>
+        <td><code>patients</code>, <code>doctors</code></td>
+        <td>Many visits per patient/doctor</td>
+      </tr>
+      <tr>
+        <td><code>clinical_notes</code></td>
+        <td>→</td>
+        <td><code>patients</code>, <code>doctors</code></td>
+        <td>Many notes per patient/doctor</td>
+      </tr>
+      <tr>
+        <td><code>lab_tests</code></td>
+        <td>→</td>
+        <td><code>patients</code></td>
+        <td>Many tests per patient</td>
+      </tr>
+      <tr>
+        <td><code>billing</code></td>
+        <td>→</td>
+        <td><code>patients</code></td>
+        <td>Many bills per patient</td>
+      </tr>
+      <tr>
+        <td><code>users</code></td>
+        <td>→</td>
+        <td><code>hospitals</code></td>
+        <td>Many staff per hospital (hospital_id FK)</td>
+      </tr>
+      <tr>
+        <td><code>patient_forms</code></td>
+        <td>→</td>
+        <td><code>form_templates</code>, <code>patients</code></td>
+        <td>Form instance per patient per template</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="page-break"></div>
+
+  <!-- SECTION 3: SCHEMA SQL -->
+  <h2>🗄️ 3. Complete SQL — Run in This Order</h2>
+
+  <div class="callout info">
+    <span class="callout-icon">ℹ️</span>
+    <div class="callout-body">
+      <strong>How to run:</strong>
+      Open pgAdmin, DBeaver, or run <code>psql -U postgres -d dscribe_hms -f schema.sql</code> in terminal. Run the
+      three files in the order shown below.
+    </div>
+  </div>
+
+  <h3>📄 Step 1 — schema.sql &nbsp; (Core Tables)</h3>
+  <pre>
+<span class="cm">-- =============================================================</span>
+<span class="cm">-- dScribe HMS — PostgreSQL Schema</span>
+<span class="cm">-- =============================================================</span>
+
+<span class="kw">DROP TABLE IF EXISTS</span> clinical_notes <span class="kw">CASCADE</span>;
+<span class="kw">DROP TABLE IF EXISTS</span> opd_visits <span class="kw">CASCADE</span>;
+<span class="kw">DROP TABLE IF EXISTS</span> beds <span class="kw">CASCADE</span>;
+<span class="kw">DROP TABLE IF EXISTS</span> patients <span class="kw">CASCADE</span>;
+<span class="kw">DROP TABLE IF EXISTS</span> doctors <span class="kw">CASCADE</span>;
+<span class="kw">DROP TABLE IF EXISTS</span> pharmacy_inventory <span class="kw">CASCADE</span>;
+<span class="kw">DROP TABLE IF EXISTS</span> lab_tests <span class="kw">CASCADE</span>;
+<span class="kw">DROP TABLE IF EXISTS</span> billing <span class="kw">CASCADE</span>;
+
+<span class="kw">CREATE TABLE</span> <span class="fn">doctors</span> (
+  id            <span class="tp">VARCHAR(20)</span> <span class="kw">PRIMARY KEY</span>,
+  name          <span class="tp">VARCHAR(100)</span> <span class="kw">NOT NULL</span>,
+  department    <span class="tp">VARCHAR(100)</span> <span class="kw">NOT NULL</span>,
+  qualification <span class="tp">VARCHAR(200)</span>,
+  experience    <span class="tp">INTEGER</span> <span class="kw">DEFAULT</span> 0,
+  rating        <span class="tp">NUMERIC(3,1)</span> <span class="kw">DEFAULT</span> 5.0,
+  status        <span class="tp">VARCHAR(30)</span> <span class="kw">DEFAULT</span> <span class="str">'available'</span>,
+  schedule      <span class="tp">VARCHAR(100)</span>,
+  phone         <span class="tp">VARCHAR(20)</span>,
+  email         <span class="tp">VARCHAR(100)</span>,
+  patient_count <span class="tp">INTEGER</span> <span class="kw">DEFAULT</span> 0,
+  created_at    <span class="tp">TIMESTAMPTZ</span> <span class="kw">DEFAULT</span> <span class="fn">NOW()</span>
+);
+
+<span class="kw">CREATE TABLE</span> <span class="fn">patients</span> (
+  id             <span class="tp">VARCHAR(20)</span> <span class="kw">PRIMARY KEY</span>,
+  name           <span class="tp">VARCHAR(100)</span> <span class="kw">NOT NULL</span>,
+  age            <span class="tp">INTEGER</span>,
+  gender         <span class="tp">VARCHAR(10)</span>,
+  blood_group    <span class="tp">VARCHAR(5)</span>,
+  department     <span class="tp">VARCHAR(100)</span>,
+  doctor_id      <span class="tp">VARCHAR(20)</span> <span class="kw">REFERENCES</span> doctors(id),
+  phone          <span class="tp">VARCHAR(20)</span>,
+  status         <span class="tp">VARCHAR(30)</span> <span class="kw">DEFAULT</span> <span class="str">'Stable'</span>,
+  admission_type <span class="tp">VARCHAR(20)</span> <span class="kw">DEFAULT</span> <span class="str">'OPD'</span>,
+  admitted_at    <span class="tp">TIMESTAMPTZ</span> <span class="kw">DEFAULT</span> <span class="fn">NOW()</span>,
+  notes          <span class="tp">TEXT</span>,
+  created_at     <span class="tp">TIMESTAMPTZ</span> <span class="kw">DEFAULT</span> <span class="fn">NOW()</span>
+);
+
+<span class="kw">CREATE TABLE</span> <span class="fn">beds</span> (
+  id          <span class="tp">VARCHAR(20)</span> <span class="kw">PRIMARY KEY</span>,
+  ward        <span class="tp">VARCHAR(50)</span> <span class="kw">NOT NULL</span>,
+  bed_type    <span class="tp">VARCHAR(30)</span>,
+  status      <span class="tp">VARCHAR(20)</span> <span class="kw">DEFAULT</span> <span class="str">'available'</span>,
+  patient_id  <span class="tp">VARCHAR(20)</span> <span class="kw">REFERENCES</span> patients(id),
+  doctor_id   <span class="tp">VARCHAR(20)</span> <span class="kw">REFERENCES</span> doctors(id),
+  diagnosis   <span class="tp">TEXT</span>,
+  admitted_at <span class="tp">DATE</span>,
+  has_alert   <span class="tp">BOOLEAN</span> <span class="kw">DEFAULT</span> <span class="kw">FALSE</span>
+);
+
+<span class="kw">CREATE TABLE</span> <span class="fn">opd_visits</span> (
+  id           <span class="tp">SERIAL</span> <span class="kw">PRIMARY KEY</span>,
+  patient_id   <span class="tp">VARCHAR(20)</span> <span class="kw">REFERENCES</span> patients(id),
+  doctor_id    <span class="tp">VARCHAR(20)</span> <span class="kw">REFERENCES</span> doctors(id),
+  token        <span class="tp">VARCHAR(20)</span>,
+  department   <span class="tp">VARCHAR(100)</span>,
+  visit_type   <span class="tp">VARCHAR(50)</span>,
+  symptoms     <span class="tp">TEXT</span>,
+  diagnosis    <span class="tp">TEXT</span>,
+  prescription <span class="tp">TEXT</span>,
+  status       <span class="tp">VARCHAR(30)</span> <span class="kw">DEFAULT</span> <span class="str">'Waiting'</span>,
+  fee          <span class="tp">NUMERIC(10,2)</span>,
+  visit_date   <span class="tp">DATE</span> <span class="kw">DEFAULT</span> <span class="fn">CURRENT_DATE</span>,
+  created_at   <span class="tp">TIMESTAMPTZ</span> <span class="kw">DEFAULT</span> <span class="fn">NOW()</span>
+);
+
+<span class="kw">CREATE TABLE</span> <span class="fn">clinical_notes</span> (
+  id         <span class="tp">SERIAL</span> <span class="kw">PRIMARY KEY</span>,
+  patient_id <span class="tp">VARCHAR(20)</span> <span class="kw">REFERENCES</span> patients(id),
+  doctor_id  <span class="tp">VARCHAR(20)</span> <span class="kw">REFERENCES</span> doctors(id),
+  note_type  <span class="tp">VARCHAR(100)</span>,
+  content    <span class="tp">TEXT</span>,
+  priority   <span class="tp">VARCHAR(20)</span> <span class="kw">DEFAULT</span> <span class="str">'low'</span>,
+  status     <span class="tp">VARCHAR(30)</span> <span class="kw">DEFAULT</span> <span class="str">'pending'</span>,
+  created_at <span class="tp">TIMESTAMPTZ</span> <span class="kw">DEFAULT</span> <span class="fn">NOW()</span>
+);
+
+<span class="kw">CREATE TABLE</span> <span class="fn">lab_tests</span> (
+  id           <span class="tp">SERIAL</span> <span class="kw">PRIMARY KEY</span>,
+  patient_id   <span class="tp">VARCHAR(20)</span> <span class="kw">REFERENCES</span> patients(id),
+  test_name    <span class="tp">VARCHAR(100)</span> <span class="kw">NOT NULL</span>,
+  category     <span class="tp">VARCHAR(100)</span>,
+  requested_by <span class="tp">VARCHAR(100)</span>,
+  status       <span class="tp">VARCHAR(30)</span> <span class="kw">DEFAULT</span> <span class="str">'Pending'</span>,
+  priority     <span class="tp">VARCHAR(20)</span> <span class="kw">DEFAULT</span> <span class="str">'Routine'</span>,
+  result_notes <span class="tp">TEXT</span>,
+  ordered_at   <span class="tp">TIMESTAMPTZ</span> <span class="kw">DEFAULT</span> <span class="fn">NOW()</span>,
+  completed_at <span class="tp">TIMESTAMPTZ</span>
+);
+
+<span class="kw">CREATE TABLE</span> <span class="fn">pharmacy_inventory</span> (
+  id           <span class="tp">SERIAL</span> <span class="kw">PRIMARY KEY</span>,
+  name         <span class="tp">VARCHAR(150)</span> <span class="kw">NOT NULL</span>,
+  category     <span class="tp">VARCHAR(100)</span>,
+  stock        <span class="tp">INTEGER</span> <span class="kw">DEFAULT</span> 0,
+  unit         <span class="tp">VARCHAR(30)</span>,
+  price        <span class="tp">NUMERIC(10,2)</span>,
+  expiry       <span class="tp">DATE</span>,
+  manufacturer <span class="tp">VARCHAR(150)</span>,
+  status       <span class="tp">VARCHAR(30)</span> <span class="kw">DEFAULT</span> <span class="str">'In Stock'</span>
+);
+
+<span class="kw">CREATE TABLE</span> <span class="fn">billing</span> (
+  id             <span class="tp">VARCHAR(20)</span> <span class="kw">PRIMARY KEY</span>,
+  patient_id     <span class="tp">VARCHAR(20)</span> <span class="kw">REFERENCES</span> patients(id),
+  total_amount   <span class="tp">NUMERIC(12,2)</span>,
+  paid_amount    <span class="tp">NUMERIC(12,2)</span> <span class="kw">DEFAULT</span> 0,
+  status         <span class="tp">VARCHAR(30)</span> <span class="kw">DEFAULT</span> <span class="str">'Pending'</span>,
+  payment_method <span class="tp">VARCHAR(50)</span>,
+  type           <span class="tp">VARCHAR(50)</span>,
+  created_at     <span class="tp">TIMESTAMPTZ</span> <span class="kw">DEFAULT</span> <span class="fn">NOW()</span>
+);
+
+<span class="cm">-- Indexes</span>
+<span class="kw">CREATE INDEX</span> idx_patients_status <span class="kw">ON</span> patients(status);
+<span class="kw">CREATE INDEX</span> idx_patients_type   <span class="kw">ON</span> patients(admission_type);
+<span class="kw">CREATE INDEX</span> idx_beds_status     <span class="kw">ON</span> beds(status);
+<span class="kw">CREATE INDEX</span> idx_beds_ward       <span class="kw">ON</span> beds(ward);
+<span class="kw">CREATE INDEX</span> idx_opd_date        <span class="kw">ON</span> opd_visits(visit_date);
+<span class="kw">CREATE INDEX</span> idx_notes_status    <span class="kw">ON</span> clinical_notes(status);
+<span class="kw">CREATE INDEX</span> idx_lab_status      <span class="kw">ON</span> lab_tests(status);</pre>
+
+  <h3>📄 Step 2 — schema-auth.sql &nbsp; (Auth Tables)</h3>
+  <pre>
+<span class="cm">-- =============================================================</span>
+<span class="cm">-- dScribe HMS — Auth Schema (run AFTER schema.sql)</span>
+<span class="cm">-- =============================================================</span>
+
+<span class="kw">DROP TABLE IF EXISTS</span> users <span class="kw">CASCADE</span>;
+<span class="kw">DROP TABLE IF EXISTS</span> hospitals <span class="kw">CASCADE</span>;
+
+<span class="kw">CREATE TABLE</span> <span class="fn">hospitals</span> (
+  id         <span class="tp">SERIAL</span> <span class="kw">PRIMARY KEY</span>,
+  name       <span class="tp">VARCHAR(200)</span> <span class="kw">NOT NULL</span>,
+  address    <span class="tp">TEXT</span>,
+  city       <span class="tp">VARCHAR(100)</span>,
+  phone      <span class="tp">VARCHAR(20)</span>,
+  email      <span class="tp">VARCHAR(100)</span>,
+  license_no <span class="tp">VARCHAR(100)</span> <span class="kw">UNIQUE</span>,
+  bed_count  <span class="tp">INTEGER</span> <span class="kw">DEFAULT</span> 0,
+  created_at <span class="tp">TIMESTAMPTZ</span> <span class="kw">DEFAULT</span> <span class="fn">NOW()</span>
+);
+
+<span class="kw">CREATE TABLE</span> <span class="fn">users</span> (
+  id            <span class="tp">SERIAL</span> <span class="kw">PRIMARY KEY</span>,
+  hospital_id   <span class="tp">INTEGER</span> <span class="kw">REFERENCES</span> hospitals(id) <span class="kw">ON DELETE CASCADE</span>,
+  name          <span class="tp">VARCHAR(100)</span> <span class="kw">NOT NULL</span>,
+  email         <span class="tp">VARCHAR(150)</span>,
+  login_id      <span class="tp">VARCHAR(60)</span> <span class="kw">UNIQUE NOT NULL</span>,
+  password_hash <span class="tp">VARCHAR(255)</span> <span class="kw">NOT NULL</span>,
+  role          <span class="tp">VARCHAR(30)</span> <span class="kw">NOT NULL DEFAULT</span> <span class="str">'staff'</span>,
+  department    <span class="tp">VARCHAR(100)</span>,
+  phone         <span class="tp">VARCHAR(20)</span>,
+  is_active     <span class="tp">BOOLEAN</span> <span class="kw">DEFAULT</span> <span class="kw">TRUE</span>,
+  created_by    <span class="tp">INTEGER</span> <span class="kw">REFERENCES</span> users(id),
+  created_at    <span class="tp">TIMESTAMPTZ</span> <span class="kw">DEFAULT</span> <span class="fn">NOW()</span>
+);
+
+<span class="kw">CREATE INDEX</span> idx_users_login    <span class="kw">ON</span> users(login_id);
+<span class="kw">CREATE INDEX</span> idx_users_hospital <span class="kw">ON</span> users(hospital_id);
+<span class="kw">CREATE INDEX</span> idx_users_role     <span class="kw">ON</span> users(role);</pre>
+
+  <h3>📄 Step 3 — schema-forms.sql &nbsp; (PDF Form Tables)</h3>
+  <pre>
+<span class="cm">-- =============================================================</span>
+<span class="cm">-- dScribe HMS — Hospital Forms Schema</span>
+<span class="cm">-- Run AFTER schema.sql and schema-auth.sql</span>
+<span class="cm">-- =============================================================</span>
+
+<span class="kw">CREATE TABLE IF NOT EXISTS</span> <span class="fn">form_templates</span> (
+  id          <span class="tp">SERIAL</span> <span class="kw">PRIMARY KEY</span>,
+  name        <span class="tp">VARCHAR(200)</span> <span class="kw">NOT NULL</span>,
+  description <span class="tp">TEXT</span>,
+  category    <span class="tp">VARCHAR(100)</span> <span class="kw">DEFAULT</span> <span class="str">'General'</span>,
+  file_path   <span class="tp">VARCHAR(500)</span> <span class="kw">NOT NULL</span>,
+  file_name   <span class="tp">VARCHAR(300)</span> <span class="kw">NOT NULL</span>,
+  file_size   <span class="tp">INTEGER</span>,
+  page_count  <span class="tp">INTEGER</span> <span class="kw">DEFAULT</span> 1,
+  is_active   <span class="tp">BOOLEAN</span> <span class="kw">DEFAULT</span> <span class="kw">TRUE</span>,
+  created_by  <span class="tp">VARCHAR(100)</span>,
+  created_at  <span class="tp">TIMESTAMPTZ</span> <span class="kw">DEFAULT</span> <span class="fn">NOW()</span>
+);
+
+<span class="kw">CREATE TABLE IF NOT EXISTS</span> <span class="fn">patient_forms</span> (
+  id          <span class="tp">SERIAL</span> <span class="kw">PRIMARY KEY</span>,
+  template_id <span class="tp">INTEGER</span> <span class="kw">REFERENCES</span> form_templates(id) <span class="kw">ON DELETE CASCADE</span>,
+  patient_id  <span class="tp">VARCHAR(20)</span> <span class="kw">REFERENCES</span> patients(id) <span class="kw">ON DELETE CASCADE</span>,
+  annotations <span class="tp">JSONB</span> <span class="kw">DEFAULT</span> <span class="str">'[]'</span>,
+  status      <span class="tp">VARCHAR(30)</span> <span class="kw">DEFAULT</span> <span class="str">'blank'</span>,
+  filled_by   <span class="tp">VARCHAR(100)</span>,
+  notes       <span class="tp">TEXT</span>,
+  created_at  <span class="tp">TIMESTAMPTZ</span> <span class="kw">DEFAULT</span> <span class="fn">NOW()</span>,
+  updated_at  <span class="tp">TIMESTAMPTZ</span> <span class="kw">DEFAULT</span> <span class="fn">NOW()</span>
+);
+
+<span class="kw">CREATE INDEX IF NOT EXISTS</span> idx_patient_forms_patient  <span class="kw">ON</span> patient_forms(patient_id);
+<span class="kw">CREATE INDEX IF NOT EXISTS</span> idx_patient_forms_template <span class="kw">ON</span> patient_forms(template_id);
+<span class="kw">CREATE INDEX IF NOT EXISTS</span> idx_form_templates_active  <span class="kw">ON</span> form_templates(is_active);</pre>
+
+  <div class="page-break"></div>
+
+  <!-- SECTION 4: HOW TO SHARE -->
+  <h2>🌐 4. How Your Friend Can Connect</h2>
+
+  <p>Your database currently runs on <strong>localhost:5433</strong>. Choose one of the options below:</p>
+
+  <div class="option-grid">
+    <div class="option-card recommended">
+      <span class="badge badge-green">✅ Recommended</span>
+      <h4>Option A — Cloud Database</h4>
+      <p>Move to a free cloud service (Neon, Supabase, Railway). Both of you get a shared URL. Free, takes 5 minutes.
+      </p>
+    </div>
+    <div class="option-card">
+      <span class="badge badge-amber">⚠️ Advanced</span>
+      <h4>Option B — Expose Local DB</h4>
+      <p>Configure PostgreSQL to accept remote connections by opening port 5433 in Windows Firewall.</p>
+    </div>
+    <div class="option-card">
+      <span class="badge badge-blue">📋 Simple</span>
+      <h4>Option C — Local Copy</h4>
+      <p>Your friend installs PostgreSQL locally, creates the database, and runs the 3 SQL scripts above.</p>
+    </div>
+  </div>
+
+  <!-- OPTION A -->
+  <h3>Option A — Free Cloud PostgreSQL (Neon.tech — Easiest)</h3>
+  <div class="steps">
+    <div class="step"><span class="step-num">1</span>
+      <div class="step-body">Go to <strong>neon.tech</strong> → Sign up free → Create a new project named
+        <code>dscribe_hms</code></div>
+    </div>
+    <div class="step"><span class="step-num">2</span>
+      <div class="step-body">Open the SQL Editor and run <strong>all 3 schema files</strong> from Section 3 in order
+      </div>
+    </div>
+    <div class="step"><span class="step-num">3</span>
+      <div class="step-body">Go to <strong>Dashboard → Connection Details</strong> → copy the connection string</div>
+    </div>
+    <div class="step"><span class="step-num">4</span>
+      <div class="step-body">Share the connection string with your friend. Both update <code>.env</code> with the new
+        host/password</div>
+    </div>
+  </div>
+
+  <!-- OPTION B -->
+  <h3>Option B — Expose Local PostgreSQL</h3>
+  <div class="steps">
+    <div class="step"><span class="step-num">1</span>
+      <div class="step-body">Find your IP: open PowerShell → run <code>ipconfig</code> → note the <strong>IPv4
+          Address</strong></div>
+    </div>
+    <div class="step"><span class="step-num">2</span>
+      <div class="step-body">Edit <code>pg_hba.conf</code> (in your PostgreSQL data dir) → add:
+        <code>host all all 0.0.0.0/0 md5</code></div>
+    </div>
+    <div class="step"><span class="step-num">3</span>
+      <div class="step-body">Edit <code>postgresql.conf</code> → set <code>listen_addresses = '*'</code></div>
+    </div>
+    <div class="step"><span class="step-num">4</span>
+      <div class="step-body">Open <strong>Windows Firewall</strong> → Allow inbound TCP on port <code>5433</code></div>
+    </div>
+    <div class="step"><span class="step-num">5</span>
+      <div class="step-body">Share your <strong>IPv4 address</strong> as the host. Your friend uses the credentials from
+        Section 1</div>
+    </div>
+  </div>
+
+  <!-- OPTION C -->
+  <h3>Option C — Your Friend Runs a Local Copy</h3>
+  <div class="steps">
+    <div class="step"><span class="step-num">1</span>
+      <div class="step-body">Install PostgreSQL 15+ from <strong>postgresql.org/download</strong></div>
+    </div>
+    <div class="step"><span class="step-num">2</span>
+      <div class="step-body">Create database: <code>CREATE DATABASE dscribe_hms;</code></div>
+    </div>
+    <div class="step"><span class="step-num">3</span>
+      <div class="step-body">Run all 3 SQL scripts from Section 3 in order using pgAdmin or psql</div>
+    </div>
+    <div class="step"><span class="step-num">4</span>
+      <div class="step-body">Use <code>localhost</code> as the host in their <code>.env</code> file</div>
+    </div>
+  </div>
+
+  <!-- SECTION 5: ROLE VALUES -->
+  <h2>👥 5. User Roles Reference</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Role Value</th>
+        <th>Description</th>
+        <th>Access Level</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>admin</code></td>
+        <td>Hospital Administrator</td>
+        <td>Full access, can create other users</td>
+      </tr>
+      <tr>
+        <td><code>doctor</code></td>
+        <td>Medical Doctor</td>
+        <td>Patients, OPD, lab, clinical notes</td>
+      </tr>
+      <tr>
+        <td><code>nurse</code></td>
+        <td>Nursing Staff</td>
+        <td>Patients, beds, clinical notes</td>
+      </tr>
+      <tr>
+        <td><code>receptionist</code></td>
+        <td>Front Desk</td>
+        <td>OPD registration, billing, patients</td>
+      </tr>
+      <tr>
+        <td><code>lab_tech</code></td>
+        <td>Laboratory Technician</td>
+        <td>Lab tests management</td>
+      </tr>
+      <tr>
+        <td><code>pharmacist</code></td>
+        <td>Pharmacy Staff</td>
+        <td>Pharmacy inventory</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <span>dScribe HMS — Database Reference v1.0</span>
+    <span>Generated: March 11, 2026 &nbsp;|&nbsp; PostgreSQL 15+ &nbsp;|&nbsp; 12 Tables</span>
+  </div>
+
+</body>
+
+</html>

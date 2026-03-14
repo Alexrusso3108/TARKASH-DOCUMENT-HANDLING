@@ -1,12 +1,19 @@
 // src/api.js — Centralised API client
 // All frontend pages import from here — change BASE_URL once to point to your server
+const BASE_URL = import.meta.env.PROD ? '/api' : 'http://localhost:5000/api'
 
-const BASE_URL = 'http://localhost:5000/api'
+function getToken() {
+  return localStorage.getItem('dscribe_token')
+}
 
 async function request(method, path, body) {
+  const token = getToken()
   const opts = {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
   }
   if (body) opts.body = JSON.stringify(body)
   const res = await fetch(`${BASE_URL}${path}`, opts)

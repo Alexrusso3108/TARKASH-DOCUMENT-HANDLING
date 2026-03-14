@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useAuth } from '../context/AuthContext'
 import {
   Upload, Search, Trash2, FileText, Plus, Tag, Eye, X,
   CheckCircle, AlertCircle, Loader, FolderOpen
@@ -17,7 +18,7 @@ const CATEGORY_COLORS = {
   Emergency: { bg: 'rgba(239,68,68,0.15)', color: '#dc2626' },
 }
 
-function UploadModal({ onClose, onUploaded }) {
+function UploadModal({ onClose, onUploaded, token }) {
   const [form, setForm] = useState({ name: '', description: '', category: 'General' })
   const [file, setFile] = useState(null)
   const [uploading, setUploading] = useState(false)
@@ -52,7 +53,11 @@ function UploadModal({ onClose, onUploaded }) {
       fd.append('name', form.name)
       fd.append('description', form.description)
       fd.append('category', form.category)
-      const res = await fetch('http://localhost:5000/api/forms/templates', { method: 'POST', body: fd })
+      const res = await fetch('http://localhost:5000/api/forms/templates', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd
+      })
       if (!res.ok) { const e = await res.json(); throw new Error(e.error) }
       const template = await res.json()
       onUploaded(template)
@@ -145,6 +150,7 @@ function UploadModal({ onClose, onUploaded }) {
 }
 
 export default function FormTemplates() {
+  const { token } = useAuth()
   const [templates, setTemplates] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -160,11 +166,13 @@ export default function FormTemplates() {
       if (categoryFilter !== 'All') params.category = categoryFilter
       if (search) params.search = search
       const url = new URLSearchParams(params)
-      const res = await fetch(`http://localhost:5000/api/forms/templates?${url}`)
+      const res = await fetch(`http://localhost:5000/api/forms/templates?${url}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
       const data = await res.json()
       setTemplates(data)
     } catch (e) { setError(e.message) } finally { setLoading(false) }
-  }, [search, categoryFilter])
+  }, [search, categoryFilter, token])
 
   useEffect(() => {
     const t = setTimeout(fetchTemplates, 300)
@@ -175,7 +183,10 @@ export default function FormTemplates() {
     if (!window.confirm('Delete this form template? All patient form instances will also be deleted.')) return
     setDeleting(id)
     try {
-      await fetch(`http://localhost:5000/api/forms/templates/${id}`, { method: 'DELETE' })
+      await fetch(`http://localhost:5000/api/forms/templates/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      })
       setTemplates(t => t.filter(x => x.id !== id))
     } catch (e) { alert('Delete failed: ' + e.message) } finally { setDeleting(null) }
   }
@@ -288,7 +299,7 @@ export default function FormTemplates() {
         </div>
       )}
 
-      {showModal && <UploadModal onClose={() => setShowModal(false)} onUploaded={t => setTemplates(prev => [t, ...prev])} />}
+      {showModal && <UploadModal onClose={() => setShowModal(false)} onUploaded={t => setTemplates(prev => [t, ...prev])} token={token} />}
     </div>
   )
 }
