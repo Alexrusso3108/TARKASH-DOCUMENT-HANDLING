@@ -1,21 +1,58 @@
 -- =============================================================
--- dScribe HMS — PostgreSQL Import File (Schema + Seed Data)
--- Run this file once to set up all tables and dummy data
+-- dScribe HMS — Complete PostgreSQL Schema
+-- This file gets executed automatically on Docker DB Init
 -- =============================================================
 
 -- Drop tables if re-running (safe to re-run)
+DROP TABLE IF EXISTS billing CASCADE;
+DROP TABLE IF EXISTS pharmacy_inventory CASCADE;
+DROP TABLE IF EXISTS lab_tests CASCADE;
 DROP TABLE IF EXISTS clinical_notes CASCADE;
 DROP TABLE IF EXISTS opd_visits CASCADE;
 DROP TABLE IF EXISTS beds CASCADE;
 DROP TABLE IF EXISTS patients CASCADE;
 DROP TABLE IF EXISTS doctors CASCADE;
-DROP TABLE IF EXISTS pharmacy_inventory CASCADE;
-DROP TABLE IF EXISTS lab_tests CASCADE;
-DROP TABLE IF EXISTS billing CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS hospitals CASCADE;
+
+-- ─── HOSPITALS ──────────────────────────────────────────────
+CREATE TABLE hospitals (
+  id           SERIAL PRIMARY KEY,
+  name         VARCHAR(200) NOT NULL,
+  address      TEXT,
+  city         VARCHAR(100),
+  phone        VARCHAR(20),
+  email        VARCHAR(100),
+  license_no   VARCHAR(100) UNIQUE,
+  bed_count    INTEGER DEFAULT 0,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ─── USERS (admin + staff) ──────────────────────────────────
+CREATE TABLE users (
+  id            SERIAL PRIMARY KEY,
+  hospital_id   INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
+  name          VARCHAR(100) NOT NULL,
+  email         VARCHAR(150),
+  login_id      VARCHAR(60) UNIQUE NOT NULL,   -- e.g. "admin.sunrise" or "DR.001.sunrise"
+  password_hash VARCHAR(255) NOT NULL,
+  role          VARCHAR(30) NOT NULL DEFAULT 'staff',
+  -- role values: admin | doctor | nurse | receptionist | lab_tech | pharmacist
+  department    VARCHAR(100),
+  phone         VARCHAR(20),
+  is_active     BOOLEAN DEFAULT TRUE,
+  created_by    INTEGER REFERENCES users(id),  -- which admin created this user
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_users_login     ON users(login_id);
+CREATE INDEX idx_users_hospital  ON users(hospital_id);
+CREATE INDEX idx_users_role      ON users(role);
 
 -- ─── DOCTORS ────────────────────────────────────────────────
 CREATE TABLE doctors (
   id            VARCHAR(20) PRIMARY KEY,
+  hospital_id   INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
   name          VARCHAR(100) NOT NULL,
   department    VARCHAR(100) NOT NULL,
   qualification VARCHAR(200),
@@ -32,6 +69,7 @@ CREATE TABLE doctors (
 -- ─── PATIENTS ───────────────────────────────────────────────
 CREATE TABLE patients (
   id            VARCHAR(20) PRIMARY KEY,
+  hospital_id   INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
   name          VARCHAR(100) NOT NULL,
   age           INTEGER,
   gender        VARCHAR(10),
@@ -49,6 +87,7 @@ CREATE TABLE patients (
 -- ─── BEDS (IPD) ─────────────────────────────────────────────
 CREATE TABLE beds (
   id            VARCHAR(20) PRIMARY KEY,
+  hospital_id   INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
   ward          VARCHAR(50) NOT NULL,
   bed_type      VARCHAR(30),
   status        VARCHAR(20) DEFAULT 'available', -- occupied | available | maintenance | reserved
@@ -62,6 +101,7 @@ CREATE TABLE beds (
 -- ─── OPD VISITS ─────────────────────────────────────────────
 CREATE TABLE opd_visits (
   id            SERIAL PRIMARY KEY,
+  hospital_id   INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
   patient_id    VARCHAR(20) REFERENCES patients(id),
   doctor_id     VARCHAR(20) REFERENCES doctors(id),
   token         VARCHAR(20),
@@ -79,6 +119,7 @@ CREATE TABLE opd_visits (
 -- ─── CLINICAL NOTES ─────────────────────────────────────────
 CREATE TABLE clinical_notes (
   id            SERIAL PRIMARY KEY,
+  hospital_id   INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
   patient_id    VARCHAR(20) REFERENCES patients(id),
   doctor_id     VARCHAR(20) REFERENCES doctors(id),
   note_type     VARCHAR(100),
@@ -91,6 +132,7 @@ CREATE TABLE clinical_notes (
 -- ─── LAB TESTS ──────────────────────────────────────────────
 CREATE TABLE lab_tests (
   id            SERIAL PRIMARY KEY,
+  hospital_id   INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
   patient_id    VARCHAR(20) REFERENCES patients(id),
   test_name     VARCHAR(100) NOT NULL,
   category      VARCHAR(100),
@@ -105,6 +147,7 @@ CREATE TABLE lab_tests (
 -- ─── PHARMACY INVENTORY ─────────────────────────────────────
 CREATE TABLE pharmacy_inventory (
   id            SERIAL PRIMARY KEY,
+  hospital_id   INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
   name          VARCHAR(150) NOT NULL,
   category      VARCHAR(100),
   stock         INTEGER DEFAULT 0,
@@ -118,6 +161,7 @@ CREATE TABLE pharmacy_inventory (
 -- ─── BILLING ────────────────────────────────────────────────
 CREATE TABLE billing (
   id            VARCHAR(20) PRIMARY KEY,
+  hospital_id   INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
   patient_id    VARCHAR(20) REFERENCES patients(id),
   total_amount  NUMERIC(12,2),
   paid_amount   NUMERIC(12,2) DEFAULT 0,
@@ -135,51 +179,3 @@ CREATE INDEX idx_beds_ward         ON beds(ward);
 CREATE INDEX idx_opd_date          ON opd_visits(visit_date);
 CREATE INDEX idx_notes_status      ON clinical_notes(status);
 CREATE INDEX idx_lab_status        ON lab_tests(status);
-
--- =============================================================
--- ─── SEED DATA / DUMMY DATA FOR IMPORT ───────────────────────
--- =============================================================
-
-INSERT INTO doctors (id, name, department, qualification, experience, rating, status, phone, email) VALUES
-('DOC-001', 'Dr. Alice Smith', 'Cardiology', 'MD, FACC', 15, 4.8, 'available', '123-456-7890', 'alice.smith@hospital.com'),
-('DOC-002', 'Dr. Bob Jones', 'Neurology', 'MD, PhD', 10, 4.9, 'in-consultation', '123-456-7891', 'bob.jones@hospital.com'),
-('DOC-003', 'Dr. Carol White', 'Orthopedics', 'MS', 8, 4.5, 'available', '123-456-7892', 'carol.white@hospital.com'),
-('DOC-004', 'Dr. David Brown', 'Pediatrics', 'MD', 12, 4.7, 'on-leave', '123-456-7893', 'david.brown@hospital.com');
-
-INSERT INTO patients (id, name, age, gender, blood_group, department, doctor_id, phone, status, admission_type) VALUES
-('PAT-001', 'John Doe', 45, 'Male', 'O+', 'Cardiology', 'DOC-001', '555-0101', 'Stable', 'OPD'),
-('PAT-002', 'Jane Roe', 32, 'Female', 'A-', 'Neurology', 'DOC-002', '555-0102', 'Critical', 'IPD'),
-('PAT-003', 'Sam Brown', 28, 'Male', 'B+', 'Orthopedics', 'DOC-003', '555-0103', 'Recovering', 'Emergency'),
-('PAT-004', 'Emily Davis', 8, 'Female', 'O-', 'Pediatrics', 'DOC-004', '555-0104', 'Stable', 'OPD');
-
-INSERT INTO beds (id, ward, bed_type, status, patient_id, doctor_id, diagnosis, admitted_at, has_alert) VALUES
-('BED-101', 'ICU', 'ICU', 'occupied', 'PAT-002', 'DOC-002', 'Severe Migraine/Neurological check', '2023-10-01', TRUE),
-('BED-102', 'ICU', 'ICU', 'available', NULL, NULL, NULL, NULL, FALSE),
-('BED-201', 'General', 'Normal', 'available', NULL, NULL, NULL, NULL, FALSE),
-('BED-202', 'Emergency', 'Normal', 'occupied', 'PAT-003', 'DOC-003', 'Fractured arm', '2023-10-02', FALSE);
-
-INSERT INTO opd_visits (patient_id, doctor_id, token, department, visit_type, symptoms, diagnosis, prescription, status, fee) VALUES
-('PAT-001', 'DOC-001', 'TKN-001', 'Cardiology', 'New Visit', 'Chest pain', 'Angina', 'Aspirin, rest', 'Completed', 500.00),
-('PAT-003', 'DOC-003', 'TKN-002', 'Orthopedics', 'Emergency', 'Severe arm pain', 'Radius fracture', 'Cast, Painkillers', 'In Progress', 1000.00),
-('PAT-004', 'DOC-004', 'TKN-003', 'Pediatrics', 'Follow-up', 'Mild fever', 'Viral fever', 'Paracetamol', 'Waiting', 300.00);
-
-INSERT INTO clinical_notes (patient_id, doctor_id, note_type, content, priority, status) VALUES
-('PAT-002', 'DOC-002', 'Daily Round', 'Patient is stable but requires continuous monitoring. Pain is managed.', 'high', 'completed'),
-('PAT-001', 'DOC-001', 'Follow-up', 'Patient reported reduced chest pain. Continue current medication.', 'medium', 'pending'),
-('PAT-003', 'DOC-003', 'Surgical Consult', 'Patient fracture requires minor surgery setup. Prep for tomorrow.', 'high', 'pending');
-
-INSERT INTO lab_tests (patient_id, test_name, category, requested_by, status, priority, result_notes) VALUES
-('PAT-001', 'ECG', 'Cardiology', 'Dr. Alice Smith', 'Completed', 'Routine', 'Normal sinus rhythm'),
-('PAT-002', 'MRI Brain', 'Imaging', 'Dr. Bob Jones', 'Pending', 'Urgent', NULL),
-('PAT-003', 'X-Ray Right Arm', 'Imaging', 'Dr. Carol White', 'Completed', 'STAT', 'Clear fracture on distal radius');
-
-INSERT INTO pharmacy_inventory (name, category, stock, unit, price, expiry, manufacturer, status) VALUES
-('Paracetamol 500mg', 'Painkillers', 1000, 'Tablet', 2.00, '2025-12-31', 'PharmaCorp', 'In Stock'),
-('Aspirin', 'Cardiology', 500, 'Tablet', 5.00, '2026-06-30', 'HealthMeds', 'In Stock'),
-('Amoxicillin', 'Antibiotic', 50, 'Capsule', 15.00, '2024-10-15', 'CureAll', 'Low Stock'),
-('Ibuprofen', 'Painkillers', 0, 'Tablet', 4.00, '2025-01-01', 'PainAway', 'Out of Stock');
-
-INSERT INTO billing (id, patient_id, total_amount, paid_amount, status, payment_method, type) VALUES
-('INV-001', 'PAT-001', 505.00, 505.00, 'Paid', 'Credit Card', 'OPD'),
-('INV-002', 'PAT-002', 2500.00, 500.00, 'Partial', 'Cash', 'IPD'),
-('INV-003', 'PAT-003', 1000.00, 0.00, 'Pending', NULL, 'Emergency');
