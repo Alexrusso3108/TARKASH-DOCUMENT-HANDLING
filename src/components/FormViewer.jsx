@@ -6,7 +6,7 @@ import {
   Pen, Eraser, Undo2, Trash2, Save, CheckCircle, Loader,
   ChevronLeft, ChevronRight, ZoomIn, ZoomOut, X, Lock, Maximize2,
 } from 'lucide-react'
-import { api } from '../api'
+import { api, SERVER_URL } from '../api'
 import { useAuth } from '../context/AuthContext'
 
 // ─── Ink Canvas ──────────────────────────────────────────────────────────────
@@ -275,7 +275,7 @@ export default function FormViewer({ formInstance, onClose, onAnnotationsSaved }
   const canErase = isAdmin || annotations.length === 0
 
 
-  const pdfUrl = `http://localhost:5000${formInstance.file_path}`
+  const pdfUrl = `${SERVER_URL}${formInstance.file_path}`
 
   // ── Load PDF.js ────────────────────────────────────────────────────────────
   useEffect(() => {

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAuth } from '../context/AuthContext'
+import { BASE_URL, SERVER_URL } from '../api'
 import {
   Upload, Search, Trash2, FileText, Plus, Tag, Eye, X,
   CheckCircle, AlertCircle, Loader, FolderOpen
@@ -53,7 +54,7 @@ function UploadModal({ onClose, onUploaded, token }) {
       fd.append('name', form.name)
       fd.append('description', form.description)
       fd.append('category', form.category)
-      const res = await fetch('http://localhost:5000/api/forms/templates', {
+      const res = await fetch(`${BASE_URL}/forms/templates`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: fd
@@ -166,7 +167,7 @@ export default function FormTemplates() {
       if (categoryFilter !== 'All') params.category = categoryFilter
       if (search) params.search = search
       const url = new URLSearchParams(params)
-      const res = await fetch(`http://localhost:5000/api/forms/templates?${url}`, {
+      const res = await fetch(`${BASE_URL}/forms/templates?${url}`, {
         headers: { Authorization: `Bearer ${token}` }
       })
       const data = await res.json()
@@ -183,7 +184,7 @@ export default function FormTemplates() {
     if (!window.confirm('Delete this form template? All patient form instances will also be deleted.')) return
     setDeleting(id)
     try {
-      await fetch(`http://localhost:5000/api/forms/templates/${id}`, {
+      await fetch(`${BASE_URL}/forms/templates/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       })
@@ -277,7 +278,7 @@ export default function FormTemplates() {
               <div className="divider" style={{ margin: '0 0 1rem' }} />
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <a
-                  href={`http://localhost:5000${t.file_path}`}
+                  href={`${SERVER_URL}${t.file_path}`}
                   target="_blank"
                   rel="noreferrer"
                   className="btn btn-secondary btn-sm"

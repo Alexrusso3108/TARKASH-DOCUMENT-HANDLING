@@ -3,20 +3,8 @@
 -- This file gets executed automatically on Docker DB Init
 -- =============================================================
 
--- Drop tables if re-running (safe to re-run)
-DROP TABLE IF EXISTS billing CASCADE;
-DROP TABLE IF EXISTS pharmacy_inventory CASCADE;
-DROP TABLE IF EXISTS lab_tests CASCADE;
-DROP TABLE IF EXISTS clinical_notes CASCADE;
-DROP TABLE IF EXISTS opd_visits CASCADE;
-DROP TABLE IF EXISTS beds CASCADE;
-DROP TABLE IF EXISTS patients CASCADE;
-DROP TABLE IF EXISTS doctors CASCADE;
-DROP TABLE IF EXISTS users CASCADE;
-DROP TABLE IF EXISTS hospitals CASCADE;
-
 -- ─── HOSPITALS ──────────────────────────────────────────────
-CREATE TABLE hospitals (
+CREATE TABLE IF NOT EXISTS hospitals (
   id           SERIAL PRIMARY KEY,
   name         VARCHAR(200) NOT NULL,
   address      TEXT,
@@ -29,7 +17,7 @@ CREATE TABLE hospitals (
 );
 
 -- ─── USERS (admin + staff) ──────────────────────────────────
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
   id            SERIAL PRIMARY KEY,
   hospital_id   INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
   name          VARCHAR(100) NOT NULL,
@@ -50,7 +38,7 @@ CREATE INDEX idx_users_hospital  ON users(hospital_id);
 CREATE INDEX idx_users_role      ON users(role);
 
 -- ─── DOCTORS ────────────────────────────────────────────────
-CREATE TABLE doctors (
+CREATE TABLE IF NOT EXISTS doctors (
   id            VARCHAR(20) PRIMARY KEY,
   hospital_id   INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
   name          VARCHAR(100) NOT NULL,
@@ -67,7 +55,7 @@ CREATE TABLE doctors (
 );
 
 -- ─── PATIENTS ───────────────────────────────────────────────
-CREATE TABLE patients (
+CREATE TABLE IF NOT EXISTS patients (
   id            VARCHAR(20) PRIMARY KEY,
   hospital_id   INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
   name          VARCHAR(100) NOT NULL,
@@ -85,7 +73,7 @@ CREATE TABLE patients (
 );
 
 -- ─── BEDS (IPD) ─────────────────────────────────────────────
-CREATE TABLE beds (
+CREATE TABLE IF NOT EXISTS beds (
   id            VARCHAR(20) PRIMARY KEY,
   hospital_id   INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
   ward          VARCHAR(50) NOT NULL,
@@ -99,7 +87,7 @@ CREATE TABLE beds (
 );
 
 -- ─── OPD VISITS ─────────────────────────────────────────────
-CREATE TABLE opd_visits (
+CREATE TABLE IF NOT EXISTS opd_visits (
   id            SERIAL PRIMARY KEY,
   hospital_id   INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
   patient_id    VARCHAR(20) REFERENCES patients(id),
@@ -117,7 +105,7 @@ CREATE TABLE opd_visits (
 );
 
 -- ─── CLINICAL NOTES ─────────────────────────────────────────
-CREATE TABLE clinical_notes (
+CREATE TABLE IF NOT EXISTS clinical_notes (
   id            SERIAL PRIMARY KEY,
   hospital_id   INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
   patient_id    VARCHAR(20) REFERENCES patients(id),
@@ -130,7 +118,7 @@ CREATE TABLE clinical_notes (
 );
 
 -- ─── LAB TESTS ──────────────────────────────────────────────
-CREATE TABLE lab_tests (
+CREATE TABLE IF NOT EXISTS lab_tests (
   id            SERIAL PRIMARY KEY,
   hospital_id   INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
   patient_id    VARCHAR(20) REFERENCES patients(id),
@@ -145,7 +133,7 @@ CREATE TABLE lab_tests (
 );
 
 -- ─── PHARMACY INVENTORY ─────────────────────────────────────
-CREATE TABLE pharmacy_inventory (
+CREATE TABLE IF NOT EXISTS pharmacy_inventory (
   id            SERIAL PRIMARY KEY,
   hospital_id   INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
   name          VARCHAR(150) NOT NULL,
@@ -159,7 +147,7 @@ CREATE TABLE pharmacy_inventory (
 );
 
 -- ─── BILLING ────────────────────────────────────────────────
-CREATE TABLE billing (
+CREATE TABLE IF NOT EXISTS billing (
   id            VARCHAR(20) PRIMARY KEY,
   hospital_id   INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
   patient_id    VARCHAR(20) REFERENCES patients(id),

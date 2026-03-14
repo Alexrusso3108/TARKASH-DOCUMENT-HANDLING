@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, Search, UserPlus, Eye, EyeOff, Loader, X, CheckCircle, AlertCircle, Users, Shield } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { BASE_URL } from '../api'
 
 const ROLES = [
   { value: 'doctor', label: 'Doctor', color: '#6366f1', bg: 'rgba(99,102,241,0.1)' },
@@ -30,7 +31,7 @@ function CreateStaffModal({ token, hospitalName, onClose, onCreated }) {
     if (form.password.length < 6) { setError('Password must be at least 6 characters'); return }
     setSaving(true); setError(null)
     try {
-      const res = await fetch('http://localhost:5000/api/auth/staff', {
+      const res = await fetch(`${BASE_URL}/auth/staff`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(form),
@@ -165,7 +166,7 @@ export default function StaffManagement() {
   const fetchStaff = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch('http://localhost:5000/api/auth/staff', { headers: { Authorization: `Bearer ${token}` } })
+      const res = await fetch(`${BASE_URL}/auth/staff`, { headers: { Authorization: `Bearer ${token}` } })
       const data = await res.json()
       if (res.ok) setStaff(data)
     } catch { } finally { setLoading(false) }
@@ -178,7 +179,7 @@ export default function StaffManagement() {
   const toggleActive = async (member) => {
     setToggling(member.id)
     try {
-      const res = await fetch(`http://localhost:5000/api/auth/staff/${member.id}`, {
+      const res = await fetch(`${BASE_URL}/auth/staff/${member.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ is_active: !member.is_active }),

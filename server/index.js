@@ -39,10 +39,32 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD || '',
 })
 
-pool.connect()
-  .then(async c => {
-    console.log('✅  PostgreSQL connected')
-    // Run each migration separately — pg does not support multiple statements in one query()
+async function initDB() {
+  let retries = 10
+  let c
+  while (retries > 0) {
+    try {
+      c = await pool.connect()
+      console.log('✅  PostgreSQL connected')
+      break
+    } catch (e) {
+      console.error(`❌  DB connection failed: ${e.message}, retrying in 3 seconds...`)
+      retries--
+      await new Promise(r => setTimeout(r, 3000))
+    }
+  }
+
+  if (!c) {
+    console.error('💥 FATAL: Could not connect to DB.')
+    return
+  }
+
+  try {
+    // 1. Run the main schema creation file safely
+    const importSql = fs.readFileSync(path.join(__dirname, 'dscribe_hms_import.sql'), 'utf-8')
+    await c.query(importSql)
+
+    // 2. Run forms / alterations
     const safeMigrations = [
       `DO $m$ BEGIN ALTER TABLE patients ADD COLUMN hospital_id INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
       `DO $m$ BEGIN ALTER TABLE doctors ADD COLUMN hospital_id INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
@@ -54,7 +76,7 @@ pool.connect()
       `DO $m$ BEGIN ALTER TABLE billing ADD COLUMN hospital_id INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
       `CREATE TABLE IF NOT EXISTS form_templates (
         id          SERIAL PRIMARY KEY,
-        hospital_id INTEGER,
+        hospital_id INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
         name        VARCHAR(200) NOT NULL,
         description TEXT,
         category    VARCHAR(100) DEFAULT 'General',
@@ -66,7 +88,7 @@ pool.connect()
         created_by  VARCHAR(100),
         created_at  TIMESTAMPTZ DEFAULT NOW()
       )`,
-      `DO $m$ BEGIN ALTER TABLE form_templates ADD COLUMN hospital_id INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
+      `DO $m$ BEGIN ALTER TABLE form_templates ADD COLUMN hospital_id INTEGER REFERENCES hospitals(id) ON DELETE CASCADE; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
       `CREATE TABLE IF NOT EXISTS patient_forms (
         id              SERIAL PRIMARY KEY,
         template_id     INTEGER REFERENCES form_templates(id) ON DELETE CASCADE,
@@ -86,9 +108,14 @@ pool.connect()
       await c.query(sql)
     }
     console.log('✅  All tables ready with hospital scoping')
+  } catch (e) {
+    console.error('❌  DB Init failed:', e.message)
+  } finally {
     c.release()
-  })
-  .catch(e => { console.error('❌  DB connection failed:', e.message) })
+  }
+}
+
+initDB()
 
 // Share pool with auth module
 setAuthPool(pool)
