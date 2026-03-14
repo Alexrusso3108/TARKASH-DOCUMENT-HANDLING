@@ -171,6 +171,7 @@ export default function FormTemplates() {
         headers: { Authorization: `Bearer ${token}` }
       })
       const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to load templates')
       setTemplates(data)
     } catch (e) { setError(e.message) } finally { setLoading(false) }
   }, [search, categoryFilter, token])
