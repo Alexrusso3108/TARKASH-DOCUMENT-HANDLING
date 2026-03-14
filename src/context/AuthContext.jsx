@@ -17,7 +17,8 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     if (!token) return
     setLoading(true)
-    fetch('http://localhost:5000/api/auth/me', {
+    const baseUrl = import.meta.env.PROD ? '/api' : 'http://localhost:5000/api'
+    fetch(`${baseUrl}/auth/me`, {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then(r => r.ok ? r.json() : Promise.reject())
