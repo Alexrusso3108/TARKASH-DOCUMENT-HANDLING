@@ -16,29 +16,6 @@ async function seed() {
   try {
     await client.query('BEGIN')
 
-    // ── CREATE DEFAULT HOSPITAL & ADMIN ─────────────────
-    const { rows: hospResult } = await client.query(
-      `INSERT INTO hospitals (name, city, address, phone, email, bed_count)
-       VALUES ('City General Hospital', 'Metropolis', '123 Main St', '800-123-4567', 'contact@citygen.com', 200)
-       ON CONFLICT DO NOTHING
-       RETURNING id`
-    )
-    
-    let hospId = 1
-    if (hospResult.length > 0) {
-      hospId = hospResult[0].id
-    } else {
-      const { rows: getHosp } = await client.query(`SELECT id FROM hospitals LIMIT 1`)
-      if (getHosp.length) hospId = getHosp[0].id
-    }
-
-    await client.query(
-      `INSERT INTO users (hospital_id, name, login_id, password_hash, role)
-       VALUES ($1, 'Admin User', 'admin.citygen', '$2b$12$9eXUWzUUQW0N.d41FgOinO.7e2AV5EZ40udKkD6e5qgImIyroHa.', 'admin')
-       ON CONFLICT (login_id) DO NOTHING`,
-       [hospId]
-    )
-
     // ── DOCTORS ──────────────────────────────
     const doctors = [
       { id: 'D-001', name: 'Dr. Rajiv Mehta', dept: 'Internal Medicine', qual: 'MBBS, MD (Internal Medicine)', exp: 18, patients: 142, rating: 4.9, status: 'available', schedule: 'Mon–Fri, 9AM–5PM', phone: '98765 10001', email: 'r.mehta@dscribe.in' },
@@ -53,9 +30,9 @@ async function seed() {
     ]
     for (const d of doctors) {
       await client.query(
-        `INSERT INTO doctors (id,hospital_id,name,department,qualification,experience,patient_count,rating,status,schedule,phone,email)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (id) DO NOTHING`,
-        [d.id, hospId, d.name, d.dept, d.qual, d.exp, d.patients, d.rating, d.status, d.schedule, d.phone, d.email]
+        `INSERT INTO doctors (id,name,department,qualification,experience,patient_count,rating,status,schedule,phone,email)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (id) DO NOTHING`,
+        [d.id, d.name, d.dept, d.qual, d.exp, d.patients, d.rating, d.status, d.schedule, d.phone, d.email]
       )
     }
 
@@ -74,9 +51,9 @@ async function seed() {
     ]
     for (const p of patients) {
       await client.query(
-        `INSERT INTO patients (id,hospital_id,name,age,gender,blood_group,department,doctor_id,phone,status,admission_type,admitted_at,notes)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),$12) ON CONFLICT (id) DO NOTHING`,
-        [p.id, hospId, p.name, p.age, p.gender, p.blood, p.dept, p.doctorId, p.phone, p.status, p.type, p.notes]
+        `INSERT INTO patients (id,name,age,gender,blood_group,department,doctor_id,phone,status,admission_type,admitted_at,notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),$11) ON CONFLICT (id) DO NOTHING`,
+        [p.id, p.name, p.age, p.gender, p.blood, p.dept, p.doctorId, p.phone, p.status, p.type, p.notes]
       )
     }
 
@@ -100,9 +77,9 @@ async function seed() {
     ]
     for (const b of beds) {
       await client.query(
-        `INSERT INTO beds (id,hospital_id,ward,bed_type,status,patient_id,doctor_id,diagnosis,has_alert)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO NOTHING`,
-        [b.id, hospId, b.ward, b.type, b.status, b.patientId, b.doctorId, b.diagnosis, b.alert]
+        `INSERT INTO beds (id,ward,bed_type,status,patient_id,doctor_id,diagnosis,has_alert)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO NOTHING`,
+        [b.id, b.ward, b.type, b.status, b.patientId, b.doctorId, b.diagnosis, b.alert]
       )
     }
 
@@ -117,9 +94,9 @@ async function seed() {
     ]
     for (const o of opd) {
       await client.query(
-        `INSERT INTO opd_visits (hospital_id,patient_id,doctor_id,token,department,visit_type,symptoms,status,fee)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [hospId, o.pid, o.did, o.token, o.dept, o.vtype, o.symptoms, o.status, o.fee]
+        `INSERT INTO opd_visits (patient_id,doctor_id,token,department,visit_type,symptoms,status,fee)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [o.pid, o.did, o.token, o.dept, o.vtype, o.symptoms, o.status, o.fee]
       )
     }
 
@@ -132,9 +109,9 @@ async function seed() {
     ]
     for (const n of notes) {
       await client.query(
-        `INSERT INTO clinical_notes (hospital_id,patient_id,doctor_id,note_type,content,priority,status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [hospId, n.pid, n.did, n.type, n.content, n.priority, n.status]
+        `INSERT INTO clinical_notes (patient_id,doctor_id,note_type,content,priority,status)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [n.pid, n.did, n.type, n.content, n.priority, n.status]
       )
     }
 
@@ -148,9 +125,9 @@ async function seed() {
     ]
     for (const l of labs) {
       await client.query(
-        `INSERT INTO lab_tests (hospital_id,patient_id,test_name,category,requested_by,status,priority)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [hospId, l.pid, l.test, l.cat, l.req, l.status, l.priority]
+        `INSERT INTO lab_tests (patient_id,test_name,category,requested_by,status,priority)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [l.pid, l.test, l.cat, l.req, l.status, l.priority]
       )
     }
 
@@ -165,9 +142,9 @@ async function seed() {
     ]
     for (const m of meds) {
       await client.query(
-        `INSERT INTO pharmacy_inventory (hospital_id,name,category,stock,unit,price,expiry,manufacturer,status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [hospId, m.name, m.cat, m.stock, m.unit, m.price, m.expiry, m.mfr, m.status]
+        `INSERT INTO pharmacy_inventory (name,category,stock,unit,price,expiry,manufacturer,status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [m.name, m.cat, m.stock, m.unit, m.price, m.expiry, m.mfr, m.status]
       )
     }
 
@@ -181,9 +158,9 @@ async function seed() {
     ]
     for (const b of bills) {
       await client.query(
-        `INSERT INTO billing (id,hospital_id,patient_id,total_amount,paid_amount,status,payment_method,type)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (id) DO NOTHING`,
-        [b.id, hospId, b.pid, b.total, b.paid, b.status, b.method, b.type]
+        `INSERT INTO billing (id,patient_id,total_amount,paid_amount,status,payment_method,type)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING`,
+        [b.id, b.pid, b.total, b.paid, b.status, b.method, b.type]
       )
     }
 
