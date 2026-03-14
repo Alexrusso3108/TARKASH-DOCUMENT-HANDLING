@@ -33,9 +33,9 @@ CREATE TABLE IF NOT EXISTS users (
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_users_login     ON users(login_id);
-CREATE INDEX idx_users_hospital  ON users(hospital_id);
-CREATE INDEX idx_users_role      ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_login     ON users(login_id);
+CREATE INDEX IF NOT EXISTS idx_users_hospital  ON users(hospital_id);
+CREATE INDEX IF NOT EXISTS idx_users_role      ON users(role);
 
 -- ─── DOCTORS ────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS doctors (
@@ -160,10 +160,10 @@ CREATE TABLE IF NOT EXISTS billing (
 );
 
 -- ─── INDEXES ────────────────────────────────────────────────
-CREATE INDEX idx_patients_status   ON patients(status);
-CREATE INDEX idx_patients_type     ON patients(admission_type);
-CREATE INDEX idx_beds_status       ON beds(status);
-CREATE INDEX idx_beds_ward         ON beds(ward);
-CREATE INDEX idx_opd_date          ON opd_visits(visit_date);
-CREATE INDEX idx_notes_status      ON clinical_notes(status);
-CREATE INDEX idx_lab_status        ON lab_tests(status);
+CREATE INDEX IF NOT EXISTS idx_patients_status   ON patients(status);
+CREATE INDEX IF NOT EXISTS idx_patients_type     ON patients(admission_type);
+CREATE INDEX IF NOT EXISTS idx_beds_status       ON beds(status);
+CREATE INDEX IF NOT EXISTS idx_beds_ward         ON beds(ward);
+CREATE INDEX IF NOT EXISTS idx_opd_date          ON opd_visits(visit_date);
+CREATE INDEX IF NOT EXISTS idx_notes_status      ON clinical_notes(status);
+CREATE INDEX IF NOT EXISTS idx_lab_status        ON lab_tests(status);
