@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { FileText, Loader, ArrowRight, ArrowLeft, Building2, User, Lock, Eye, EyeOff, CheckCircle } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { BASE_URL } from '../api'
 
 const STEPS = ['Hospital Info', 'Admin Account', 'Review & Submit']
 
@@ -82,7 +83,7 @@ export default function RegisterPage() {
   const handleSubmit = async () => {
     setLoading(true); setError(null)
     try {
-      const res = await fetch('http://localhost:5000/api/auth/register', {
+      const res = await fetch(`${BASE_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

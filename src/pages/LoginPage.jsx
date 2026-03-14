@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { Eye, EyeOff, FileText, Loader, ArrowRight, Lock, User } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { BASE_URL } from '../api'
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -18,7 +19,7 @@ export default function LoginPage() {
     if (!form.loginId || !form.password) { setError('Please enter your Login ID and password.'); return }
     setLoading(true); setError(null)
     try {
-      const res = await fetch('http://localhost:5000/api/auth/login', {
+      const res = await fetch(`${BASE_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),

@@ -1,5 +1,6 @@
 // src/context/AuthContext.jsx
 import { createContext, useContext, useState, useEffect } from 'react'
+import { BASE_URL } from '../api'
 
 const AuthContext = createContext(null)
 
@@ -17,8 +18,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     if (!token) return
     setLoading(true)
-    const baseUrl = import.meta.env.PROD ? '/api' : 'http://localhost:5000/api'
-    fetch(`${baseUrl}/auth/me`, {
+    fetch(`${BASE_URL}/auth/me`, {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then(r => r.ok ? r.json() : Promise.reject())
