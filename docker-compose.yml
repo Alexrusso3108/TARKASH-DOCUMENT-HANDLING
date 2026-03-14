@@ -27,7 +27,8 @@ services:
       - POSTGRES_PASSWORD=root_password
       - POSTGRES_DB=dscribe_hms
     ports:
-      - "5432:5432"
+      # Changed host port to 5433 to prevent "address already in use" errors if a local postgres is already running
+      - "5433:5432"
     volumes:
       # Data persistence for postgres
       - pgdata:/var/lib/postgresql/data
