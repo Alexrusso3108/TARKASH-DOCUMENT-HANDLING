@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Search, Plus, BedDouble, X, Loader, CheckCircle, AlertCircle, ClipboardList, FileText, Pen, FolderOpen } from 'lucide-react'
+import { Search, Plus, BedDouble, X, Loader, CheckCircle, AlertCircle, ClipboardList, FileText, Pen, FolderOpen, Trash2 } from 'lucide-react'
 import { api } from '../api'
 import FormViewer from '../components/FormViewer'
 
@@ -10,7 +10,87 @@ const BED_STATUS = {
   reserved: { color: '#f59e0b', bg: 'rgba(245,158,11,0.06)', border: 'rgba(245,158,11,0.3)', label: 'Reserved' },
 }
 
-const WARDS = ['All', 'ICU', 'General', 'Cardiology', 'Obs & Gyn', 'Neurology']
+const WARDS = ['ICU', 'General', 'Cardiology', 'Obs & Gyn', 'Neurology', 'Orthopedic', 'Pediatrics', 'Emergency']
+const WARD_FILTER = ['All', ...WARDS]
+const BED_TYPES = ['General', 'ICU', 'Private', 'Semi-Private', 'Maternity', 'Pediatric', 'Emergency']
+
+// ─── Add Bed Modal ────────────────────────────────────────────────────────────
+function AddBedModal({ onClose, onAdded }) {
+  const [form, setForm] = useState({ id: '', ward: 'General', bed_type: 'General', status: 'available' })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const handleSubmit = async () => {
+    if (!form.id.trim()) { setError('Bed ID is required'); return }
+    if (!form.ward) { setError('Ward is required'); return }
+    setSaving(true); setError(null)
+    try {
+      const bed = await api.createBed(form)
+      onAdded(bed)
+      onClose()
+    } catch (e) { setError(e.message) } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div className="modal-header">
+          <div>
+            <h4 style={{ color: 'var(--gray-900)', fontWeight: 700 }}>Add New Bed</h4>
+            <p style={{ fontSize: '0.8rem', color: 'var(--gray-400)', marginTop: 2 }}>Register a new bed in a ward</p>
+          </div>
+          <button className="btn btn-ghost btn-icon" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="modal-body">
+          {error && (
+            <div style={{ background: 'rgba(239,68,68,0.08)', color: '#dc2626', padding: '0.75rem 1rem', borderRadius: 'var(--radius-lg)', marginBottom: '1rem', fontSize: '0.875rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <AlertCircle size={15} /> {error}
+            </div>
+          )}
+          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+              <label className="form-label">Bed ID <span style={{ color: 'var(--danger)' }}>*</span></label>
+              <input className="form-input" placeholder="e.g. B-101, ICU-01" value={form.id} onChange={e => set('id', e.target.value.toUpperCase())} />
+              <span style={{ fontSize: '0.72rem', color: 'var(--gray-400)', marginTop: '0.25rem', display: 'block' }}>Must be unique within your hospital</span>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Ward <span style={{ color: 'var(--danger)' }}>*</span></label>
+              <select className="form-input form-select" value={form.ward} onChange={e => set('ward', e.target.value)}>
+                {WARDS.map(w => <option key={w}>{w}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Bed Type</label>
+              <select className="form-input form-select" value={form.bed_type} onChange={e => set('bed_type', e.target.value)}>
+                {BED_TYPES.map(t => <option key={t}>{t}</option>)}
+              </select>
+            </div>
+            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+              <label className="form-label">Initial Status</label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {['available', 'maintenance', 'reserved'].map(s => (
+                  <button key={s} type="button" onClick={() => set('status', s)}
+                    style={{ flex: 1, padding: '0.5rem', borderRadius: 'var(--radius-lg)', border: `1.5px solid ${form.status === s ? BED_STATUS[s].color : 'var(--gray-200)'}`, background: form.status === s ? BED_STATUS[s].bg : '#fff', color: form.status === s ? BED_STATUS[s].color : 'var(--gray-500)', fontWeight: form.status === s ? 700 : 400, fontSize: '0.8rem', cursor: 'pointer', textTransform: 'capitalize', transition: 'all 150ms' }}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleSubmit} disabled={saving}>
+            {saving ? <Loader size={14} className="spin" /> : <Plus size={14} />}
+            {saving ? 'Adding...' : 'Add Bed'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // ─── Assign Bed Modal ─────────────────────────────────────────────────────────
 function AssignBedModal({ onClose, onAssigned }) {
@@ -249,7 +329,9 @@ export default function IPD() {
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState(null)
   const [showAssign, setShowAssign] = useState(false)
+  const [showAddBed, setShowAddBed] = useState(false)
   const [releasingId, setReleasingId] = useState(null)
+  const [deletingId, setDeletingId] = useState(null)
 
   // Forms state for the detail panel
   const [panelTab, setPanelTab] = useState('info')       // 'info' | 'forms'
@@ -322,6 +404,23 @@ export default function IPD() {
     setBeds(prev => prev.map(b => b.id === enrichedBed.id ? enrichedBed : b))
   }
 
+  const handleBedAdded = (newBed) => {
+    setBeds(prev => [...prev, newBed].sort((a, b) => a.id.localeCompare(b.id)))
+  }
+
+  const handleDeleteBed = async (bed, e) => {
+    e.stopPropagation()
+    if (bed.status === 'occupied') { alert('Cannot delete an occupied bed. Discharge the patient first.'); return }
+    if (!window.confirm(`Delete bed ${bed.id} (${bed.ward})? This cannot be undone.`)) return
+    setDeletingId(bed.id)
+    try {
+      await api.deleteBed(bed.id)
+      setBeds(prev => prev.filter(b => b.id !== bed.id))
+      if (selected?.id === bed.id) setSelected(null)
+    } catch (e) { alert('Delete failed: ' + e.message) }
+    finally { setDeletingId(null) }
+  }
+
   const handleDischarge = async (bed) => {
     if (!window.confirm(`Discharge ${bed.patient_name} from Bed ${bed.id}?`)) return
     setReleasingId(bed.id)
@@ -353,9 +452,14 @@ export default function IPD() {
           <h1 className="page-title">IPD Management</h1>
           <p className="page-subtitle">Inpatient department bed management and ward tracking</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowAssign(true)}>
-          <Plus size={15} /> Assign Bed
-        </button>
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <button className="btn btn-secondary" onClick={() => setShowAddBed(true)}>
+            <Plus size={15} /> Add Bed
+          </button>
+          <button className="btn btn-primary" onClick={() => setShowAssign(true)}>
+            <BedDouble size={15} /> Assign Bed
+          </button>
+        </div>
       </div>
 
       {/* Quick Stats */}
@@ -405,8 +509,8 @@ export default function IPD() {
           <input className="form-input" style={{ paddingLeft: '2.25rem' }} placeholder="Search bed or patient..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          {WARDS.map(w => (
-            <button key={w} className={`btn btn-sm ${wardFilter === w ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setWardFilter(w)}>{w}</button>
+              {WARD_FILTER.map(w => (
+                <button key={w} className={`btn btn-sm ${wardFilter === w ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setWardFilter(w)}>{w}</button>
           ))}
         </div>
       </div>
@@ -428,7 +532,7 @@ export default function IPD() {
                 key={bed.id}
                 onClick={() => {
                   if (bed.status === 'occupied') handleSelectBed(bed)
-                  else if (isAvailable) { setShowAssign(true) }
+                  else if (bed.status === 'available') { setShowAssign(true) }
                 }}
                 style={{
                   background: s.bg, border: `1.5px solid ${selected?.id === bed.id ? 'var(--primary-400)' : s.border}`,
@@ -440,6 +544,19 @@ export default function IPD() {
               >
                 {bed.has_alert && (
                   <span style={{ position: 'absolute', top: '0.625rem', right: '0.625rem', width: 8, height: 8, borderRadius: '50%', background: '#ef4444', animation: 'pulse-dot 2s infinite' }} />
+                )}
+                {/* Delete button — only for non-occupied beds */}
+                {bed.status !== 'occupied' && (
+                  <button
+                    onClick={(e) => handleDeleteBed(bed, e)}
+                    disabled={deletingId === bed.id}
+                    title="Delete this bed"
+                    style={{ position: 'absolute', top: '0.5rem', right: '0.5rem', background: 'rgba(239,68,68,0.08)', border: 'none', borderRadius: 6, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#ef4444', opacity: deletingId === bed.id ? 0.5 : 0.7, transition: 'all 150ms' }}
+                    onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                    onMouseLeave={e => e.currentTarget.style.opacity = deletingId === bed.id ? '0.5' : '0.7'}
+                  >
+                    {deletingId === bed.id ? <Loader size={11} className="spin" /> : <Trash2 size={11} />}
+                  </button>
                 )}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
                   <BedDouble size={16} style={{ color: s.color }} />
@@ -677,6 +794,13 @@ export default function IPD() {
             </div>{/* end tab content */}
           </div>
         </div>
+      )}
+
+      {showAddBed && (
+        <AddBedModal
+          onClose={() => setShowAddBed(false)}
+          onAdded={handleBedAdded}
+        />
       )}
 
       {/* Assign Bed Modal */}

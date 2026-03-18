@@ -68,6 +68,7 @@ async function initDB() {
     const safeMigrations = [
       `DO $m$ BEGIN ALTER TABLE patients ADD COLUMN hospital_id INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
       `DO $m$ BEGIN ALTER TABLE doctors ADD COLUMN hospital_id INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
+      `DO $m$ BEGIN ALTER TABLE doctors ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
       `DO $m$ BEGIN ALTER TABLE beds ADD COLUMN hospital_id INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
       `DO $m$ BEGIN ALTER TABLE opd_visits ADD COLUMN hospital_id INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
       `DO $m$ BEGIN ALTER TABLE clinical_notes ADD COLUMN hospital_id INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
@@ -103,6 +104,29 @@ async function initDB() {
       `CREATE INDEX IF NOT EXISTS idx_patient_forms_patient ON patient_forms(patient_id)`,
       `CREATE INDEX IF NOT EXISTS idx_patient_forms_template ON patient_forms(template_id)`,
       `CREATE INDEX IF NOT EXISTS idx_form_templates_hospital ON form_templates(hospital_id)`,
+
+      // Result PDF column for lab tests
+      `ALTER TABLE lab_tests ADD COLUMN IF NOT EXISTS result_pdf_path TEXT`,
+
+      // Radiology orders table
+      `CREATE TABLE IF NOT EXISTS radiology_orders (
+        id                SERIAL PRIMARY KEY,
+        hospital_id       INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
+        patient_id        VARCHAR(20) REFERENCES patients(id),
+        study_type        VARCHAR(100) NOT NULL,
+        modality          VARCHAR(50),
+        body_part         VARCHAR(100),
+        requested_by      VARCHAR(100),
+        clinical_indication TEXT,
+        priority          VARCHAR(20) DEFAULT 'Routine',
+        status            VARCHAR(30) DEFAULT 'Scheduled',
+        radiologist_notes TEXT,
+        result_pdf_path   TEXT,
+        ordered_at        TIMESTAMPTZ DEFAULT NOW(),
+        completed_at      TIMESTAMPTZ
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_radiology_hospital ON radiology_orders(hospital_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_radiology_status   ON radiology_orders(status)`,
     ]
     for (const sql of safeMigrations) {
       await c.query(sql)
@@ -129,6 +153,33 @@ app.use(express.json())
 // AUTH ROUTES
 // ─────────────────────────────────────────────────────────────
 app.use('/api/auth', authRouter)
+
+// ─────────────────────────────────────────────────────────────
+// HOSPITAL PROFILE
+// ─────────────────────────────────────────────────────────────
+
+app.get('/api/hospital', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM hospitals WHERE id = $1', [req.user.hospitalId])
+    if (!rows.length) return res.status(404).json({ error: 'Hospital not found' })
+    res.json(rows[0])
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.patch('/api/hospital', requireAuth, async (req, res) => {
+  try {
+    const allowed = ['name', 'address', 'city', 'phone', 'email', 'license_no', 'bed_count']
+    const fields = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)))
+    if (!Object.keys(fields).length) return res.status(400).json({ error: 'Nothing to update' })
+    const keys = Object.keys(fields)
+    const clause = keys.map((k, i) => `${k} = $${i + 2}`).join(', ')
+    const vals = [req.user.hospitalId, ...keys.map(k => fields[k])]
+    const { rows } = await pool.query(
+      `UPDATE hospitals SET ${clause} WHERE id = $1 RETURNING *`, vals
+    )
+    res.json(rows[0])
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
 
 // ─────────────────────────────────────────────────────────────
 // PATIENTS
@@ -312,6 +363,36 @@ app.patch('/api/beds/:id', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
+app.post('/api/beds', requireAuth, async (req, res) => {
+  try {
+    const { id, ward, bed_type, status } = req.body
+    if (!id || !ward) return res.status(400).json({ error: 'Bed ID and Ward are required' })
+    const hid = req.user.hospitalId
+    // Check duplicate ID within this hospital
+    const { rows: existing } = await pool.query('SELECT id FROM beds WHERE id = $1 AND hospital_id = $2', [id, hid])
+    if (existing.length) return res.status(409).json({ error: `Bed ID "${id}" already exists` })
+    const { rows } = await pool.query(
+      `INSERT INTO beds (id, hospital_id, ward, bed_type, status)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [id, hid, ward, bed_type || 'General', status || 'available']
+    )
+    res.status(201).json(rows[0])
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.delete('/api/beds/:id', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT status FROM beds WHERE id = $1 AND hospital_id = $2',
+      [req.params.id, req.user.hospitalId]
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Not found' })
+    if (rows[0].status === 'occupied') return res.status(400).json({ error: 'Cannot delete an occupied bed. Please discharge the patient first.' })
+    await pool.query('DELETE FROM beds WHERE id = $1 AND hospital_id = $2', [req.params.id, req.user.hospitalId])
+    res.json({ success: true })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
 // ─────────────────────────────────────────────────────────────
 // OPD VISITS
 // ─────────────────────────────────────────────────────────────
@@ -389,24 +470,43 @@ app.get('/api/notes', requireAuth, async (req, res) => {
 app.post('/api/notes', requireAuth, async (req, res) => {
   try {
     const { patient_id, doctor_id, note_type, content, priority } = req.body
+    if (!patient_id || !content) return res.status(400).json({ error: 'Patient and content are required' })
     const { rows } = await pool.query(
-      `INSERT INTO clinical_notes (hospital_id,patient_id,doctor_id,note_type,content,priority)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [req.user.hospitalId, patient_id, doctor_id, note_type, content, priority || 'low']
+      `INSERT INTO clinical_notes (hospital_id, patient_id, doctor_id, note_type, content, priority)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [
+        req.user.hospitalId,
+        patient_id,
+        doctor_id || null,      // empty string → null to avoid FK violation
+        note_type || 'Progress Note',
+        content,
+        priority || 'medium',
+      ]
     )
     res.status(201).json(rows[0])
-  } catch (e) { res.status(500).json({ error: e.message }) }
+  } catch (e) {
+    console.error('POST /api/notes error:', e.message)
+    res.status(500).json({ error: e.message })
+  }
 })
 
 app.patch('/api/notes/:id', requireAuth, async (req, res) => {
   try {
     const fields = req.body
     const keys = Object.keys(fields)
+    if (!keys.length) return res.status(400).json({ error: 'No fields to update' })
     const setClause = keys.map((k, i) => `${k} = $${i + 2}`).join(', ')
-    const vals = [req.params.id, ...keys.map(k => fields[k])]
-    const { rows } = await pool.query(`UPDATE clinical_notes SET ${setClause} WHERE id = $1 AND hospital_id = ${req.user.hospitalId} RETURNING *`, vals)
+    const vals = [req.params.id, ...keys.map(k => fields[k]), req.user.hospitalId]
+    const { rows } = await pool.query(
+      `UPDATE clinical_notes SET ${setClause} WHERE id = $1 AND hospital_id = $${vals.length} RETURNING *`,
+      vals
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Note not found' })
     res.json(rows[0])
-  } catch (e) { res.status(500).json({ error: e.message }) }
+  } catch (e) {
+    console.error('PATCH /api/notes error:', e.message)
+    res.status(500).json({ error: e.message })
+  }
 })
 
 // ─────────────────────────────────────────────────────────────
@@ -452,6 +552,85 @@ app.patch('/api/lab/:id', requireAuth, async (req, res) => {
       `UPDATE lab_tests SET status=$2, result_notes=$3, completed_at=${completed} WHERE id=$1 AND hospital_id=${req.user.hospitalId} RETURNING *`,
       [req.params.id, status, result_notes]
     )
+    res.json(rows[0])
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// Upload result PDF for a lab test
+app.post('/api/lab/:id/upload-result', requireAuth, upload.single('result_pdf'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No PDF file uploaded' })
+    const filePath = `/uploads/forms/${req.file.filename}`
+    const { rows } = await pool.query(
+      `UPDATE lab_tests SET result_pdf_path=$2, status='Completed', completed_at=NOW()
+       WHERE id=$1 AND hospital_id=$3 RETURNING *`,
+      [req.params.id, filePath, req.user.hospitalId]
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Lab order not found' })
+    res.json(rows[0])
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// ─────────────────────────────────────────────────────────────
+// RADIOLOGY
+// ─────────────────────────────────────────────────────────────
+
+app.get('/api/radiology', requireAuth, async (req, res) => {
+  try {
+    const { status = 'All', search = '' } = req.query
+    const hid = req.user.hospitalId
+    let query = `
+      SELECT r.*, p.name AS patient_name, p.id AS patient_code
+      FROM radiology_orders r
+      LEFT JOIN patients p ON r.patient_id = p.id
+      WHERE r.hospital_id = $1`
+    const params = [hid]
+    if (status !== 'All') { params.push(status); query += ` AND r.status = $${params.length}` }
+    if (search) { params.push(`%${search}%`); query += ` AND (p.name ILIKE $${params.length} OR r.study_type ILIKE $${params.length})` }
+    query += ' ORDER BY r.ordered_at DESC'
+    const { rows } = await pool.query(query, params)
+    res.json(rows)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.post('/api/radiology', requireAuth, async (req, res) => {
+  try {
+    const { patient_id, study_type, modality, body_part, requested_by, priority, clinical_indication } = req.body
+    if (!patient_id || !study_type) return res.status(400).json({ error: 'Patient and study type are required' })
+    const { rows } = await pool.query(
+      `INSERT INTO radiology_orders (hospital_id, patient_id, study_type, modality, body_part, requested_by, priority, clinical_indication)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [req.user.hospitalId, patient_id, study_type, modality || '', body_part || '', requested_by || '', priority || 'Routine', clinical_indication || '']
+    )
+    res.status(201).json(rows[0])
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+app.patch('/api/radiology/:id', requireAuth, async (req, res) => {
+  try {
+    const { status, radiologist_notes } = req.body
+    const completed = status === 'Reported' ? 'NOW()' : 'NULL'
+    const { rows } = await pool.query(
+      `UPDATE radiology_orders SET status=$2, radiologist_notes=$3, completed_at=${completed}
+       WHERE id=$1 AND hospital_id=${req.user.hospitalId} RETURNING *`,
+      [req.params.id, status, radiologist_notes || null]
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Not found' })
+    res.json(rows[0])
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// Upload result PDF for a radiology order
+app.post('/api/radiology/:id/upload-result', requireAuth, upload.single('result_pdf'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No PDF file uploaded' })
+    const filePath = `/uploads/forms/${req.file.filename}`
+    const { rows } = await pool.query(
+      `UPDATE radiology_orders SET result_pdf_path=$2, status='Reported', completed_at=NOW()
+       WHERE id=$1 AND hospital_id=$3 RETURNING *`,
+      [req.params.id, filePath, req.user.hospitalId]
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Radiology order not found' })
     res.json(rows[0])
   } catch (e) { res.status(500).json({ error: e.message }) }
 })

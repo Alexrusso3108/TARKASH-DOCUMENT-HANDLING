@@ -172,8 +172,9 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
 
   // Toolbar
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#f8f9fa' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1rem', background: '#fff', borderBottom: '1px solid var(--gray-100)', flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 10 }}>
+    <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+      {/* Sticky toolbar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1rem', background: '#fff', borderBottom: '1px solid var(--gray-100)', flexWrap: 'wrap', flexShrink: 0 }}>
 
         {/* Tool selector: pen always visible; eraser only for admin */}
         <div style={{ display: 'flex', background: 'var(--gray-100)', borderRadius: 8, padding: '0.25rem' }}>
@@ -185,7 +186,6 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
               <Eraser size={15} />
             </button>
           ) : (
-            /* Non-admin: show locked indicator instead of eraser */
             <div title="Only admins can erase content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 32, borderRadius: 6, color: 'var(--gray-300)', cursor: 'not-allowed' }}>
               <Lock size={13} />
             </div>
@@ -208,7 +208,6 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
           ))}
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>
-          {/* Undo & Clear: only visible to admin */}
           {canErase && (
             <>
               <button className="btn btn-secondary btn-sm" onClick={handleUndo} disabled={strokes.length === 0}><Undo2 size={14} /></button>
@@ -221,12 +220,13 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
           </button>
         </div>
       </div>
-      {/* Canvas area — no padding, fills edge to edge */}
-      <div style={{ position: 'relative', flex: 1, overflow: 'auto', display: 'flex', justifyContent: 'center', background: '#1e293b' }}>
-        <div style={{ position: 'relative', display: 'inline-block', minWidth: '100%' }}>
+
+      {/* Scrollable canvas area — 1fr grid row gives it all remaining height */}
+      <div style={{ overflow: 'auto', background: '#1e293b', display: 'flex', justifyContent: 'center', alignItems: 'flex-start' }}>
+        <div style={{ position: 'relative', display: 'inline-block', lineHeight: 0 }}>
           {/* PDF layer */}
-          <canvas id={`pdf-canvas-${pdfPage}`} style={{ display: 'block', width: '100%', background: '#fff' }} />
-          {/* Ink layer */}
+          <canvas id={`pdf-canvas-${pdfPage}`} style={{ display: 'block' }} />
+          {/* Ink layer — exactly overlays the PDF canvas */}
           <canvas
             ref={canvasRef}
             onPointerDown={onPointerDown}
@@ -313,7 +313,7 @@ export default function FormViewer({ formInstance, onClose, onAnnotationsSaved }
       // On first page, compute a fit-to-width scale
       let renderScale = scale
       if (page === 1 && containerRef.current) {
-        const containerWidth = containerRef.current.clientWidth - 32 // 16px padding each side
+        const containerWidth = containerRef.current.clientWidth
         const naturalViewport = pdfPage.getViewport({ scale: 1 })
         const computed = Math.max(0.5, Math.min(3, containerWidth / naturalViewport.width))
         // Only auto-fit on very first render (when scale is still default 1.0)
@@ -411,27 +411,25 @@ export default function FormViewer({ formInstance, onClose, onAnnotationsSaved }
         </button>
       </div>
 
-      {/* Content */}
-      <div ref={containerRef} style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '1rem', background: '#1e293b' }}>
+      {/* Content — fills all remaining height; InkCanvas handles its own scroll */}
+      <div ref={containerRef} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#1e293b' }}>
         {loadingPdf ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'rgba(255,255,255,0.4)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: 'rgba(255,255,255,0.4)' }}>
             <Loader size={28} className="spin" style={{ display: 'inline-block' }} />
             <span style={{ marginLeft: '0.75rem' }}>Loading PDF...</span>
           </div>
         ) : pdfError ? (
-          <div style={{ textAlign: 'center', padding: '4rem', color: '#f87171' }}>{pdfError}</div>
+          <div style={{ textAlign: 'center', padding: '4rem', color: '#f87171', flex: 1 }}>{pdfError}</div>
         ) : (
-          <div style={{ width: viewportSize ? viewportSize.width : '100%', maxWidth: '100%', flexShrink: 0 }}>
-            <InkCanvas
-              key={`${formInstance.id}-p${page}`}
-              formId={formInstance.id}
-              initialAnnotations={pageAnnotations}
-              pdfPage={page}
-              viewportSize={viewportSize}
-              onSave={handleSave}
-              canErase={isAdmin}
-            />
-          </div>
+          <InkCanvas
+            key={`${formInstance.id}-p${page}`}
+            formId={formInstance.id}
+            initialAnnotations={pageAnnotations}
+            pdfPage={page}
+            viewportSize={viewportSize}
+            onSave={handleSave}
+            canErase={isAdmin}
+          />
         )}
       </div>
     </div>

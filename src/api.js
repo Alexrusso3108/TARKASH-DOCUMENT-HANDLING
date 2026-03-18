@@ -25,6 +25,23 @@ async function request(method, path, body) {
   return res.json()
 }
 
+// Upload a PDF file (multipart/form-data)
+async function uploadPdf(path, file) {
+  const token = getToken()
+  const form = new FormData()
+  form.append('result_pdf', file)
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error || 'Upload failed')
+  }
+  return res.json()
+}
+
 export const api = {
   // Patients
   getPatients: (params = {}) => request('GET', `/patients?${new URLSearchParams(params)}`),
@@ -42,9 +59,11 @@ export const api = {
 
   // Beds / IPD
   getBeds: (params = {}) => request('GET', `/beds?${new URLSearchParams(params)}`),
+  createBed: (data) => request('POST', '/beds', data),
   updateBed: (id, data) => request('PATCH', `/beds/${id}`, data),
   assignBed: (id, data) => request('PATCH', `/beds/${id}`, data),
   releaseBed: (id) => request('PATCH', `/beds/${id}`, { status: 'available', patient_id: null, doctor_id: null, diagnosis: null, has_alert: false }),
+  deleteBed: (id) => request('DELETE', `/beds/${id}`),
 
   // OPD
   getOPD: (params = {}) => request('GET', `/opd?${new URLSearchParams(params)}`),
@@ -60,6 +79,13 @@ export const api = {
   getLab: (params = {}) => request('GET', `/lab?${new URLSearchParams(params)}`),
   createLab: (data) => request('POST', '/lab', data),
   updateLab: (id, data) => request('PATCH', `/lab/${id}`, data),
+  uploadLabResult: (id, file) => uploadPdf(`/lab/${id}/upload-result`, file),
+
+  // Radiology
+  getRadiology: (params = {}) => request('GET', `/radiology?${new URLSearchParams(params)}`),
+  createRadiology: (data) => request('POST', '/radiology', data),
+  updateRadiology: (id, data) => request('PATCH', `/radiology/${id}`, data),
+  uploadRadiologyResult: (id, file) => uploadPdf(`/radiology/${id}/upload-result`, file),
 
   // Pharmacy
   getPharmacy: (params = {}) => request('GET', `/pharmacy?${new URLSearchParams(params)}`),
@@ -73,6 +99,10 @@ export const api = {
 
   // Dashboard
   getDashboardStats: () => request('GET', '/dashboard/stats'),
+
+  // Hospital Profile
+  getHospital: () => request('GET', '/hospital'),
+  updateHospital: (data) => request('PATCH', '/hospital', data),
 
   // Reports
   getReports: () => request('GET', '/reports'),

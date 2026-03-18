@@ -1,12 +1,13 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users, BedDouble, Stethoscope, UserSquare2,
   FileText, FlaskConical, Pill, Receipt, BarChart2, Settings,
   Bell, Search, Menu, LogOut, ChevronRight, Activity, ShieldCheck,
-  ClipboardList, FolderOpen
+  ClipboardList, FolderOpen, ScanLine
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { api } from '../api'
 
 const BASE_NAV = [
   {
@@ -28,9 +29,10 @@ const BASE_NAV = [
   {
     section: 'Operations',
     items: [
-      { label: 'Laboratory', path: '/app/laboratory', icon: FlaskConical },
-      { label: 'Pharmacy', path: '/app/pharmacy', icon: Pill },
-      { label: 'Billing', path: '/app/billing', icon: Receipt },
+      { label: 'Laboratory',  path: '/app/laboratory',  icon: FlaskConical },
+      { label: 'Radiology',   path: '/app/radiology',   icon: ScanLine },
+      { label: 'Pharmacy',    path: '/app/pharmacy',    icon: Pill },
+      { label: 'Billing',     path: '/app/billing',     icon: Receipt },
     ],
   },
   {
@@ -56,11 +58,19 @@ const ADMIN_NAV = {
   ],
 }
 
-const NOTIFICATIONS = [
-  { id: 1, msg: 'New admission: Priya Kapoor — ICU Bed 4', time: '2 min ago', unread: true },
-  { id: 2, msg: 'Lab results ready for patient #2841', time: '15 min ago', unread: true },
-  { id: 3, msg: 'Dr. Mehta approved discharge for Room 12', time: '1 hr ago', unread: false },
-]
+
+// Helper: convert ISO timestamp → "2 min ago" style string
+function timeAgo(isoString) {
+  const diff = Date.now() - new Date(isoString).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'Just now'
+  if (mins < 60) return `${mins} min ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs} hr${hrs > 1 ? 's' : ''} ago`
+  const days = Math.floor(hrs / 24)
+  if (days === 1) return 'Yesterday'
+  return `${days} days ago`
+}
 
 export default function DashboardLayout() {
   const navigate = useNavigate()
@@ -70,6 +80,92 @@ export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const [searchVal, setSearchVal] = useState('')
+  const [notifs, setNotifs] = useState([])
+  const [readIds, setReadIds] = useState(new Set())
+  const [notifLoading, setNotifLoading] = useState(false)
+
+  // Build real notifications from live API data
+  const fetchNotifs = useCallback(async () => {
+    setNotifLoading(true)
+    try {
+      const [beds, notes, lab, opd] = await Promise.all([
+        api.getBeds({ ward: 'All' }).catch(() => []),
+        api.getNotes({ status: 'pending' }).catch(() => []),
+        api.getLab({ status: 'Pending' }).catch(() => []),
+        api.getOPD({ status: 'Waiting' }).catch(() => []),
+      ])
+
+      const items = []
+
+      // Recent bed admissions (occupied beds)
+      beds
+        .filter(b => b.status === 'occupied' && b.patient_name)
+        .sort((a, b) => new Date(b.admitted_at || 0) - new Date(a.admitted_at || 0))
+        .slice(0, 2)
+        .forEach((b, i) => {
+          items.push({
+            id: `bed-${b.id}`,
+            type: 'admission',
+            msg: `Patient admitted: ${b.patient_name} — ${b.ward} Bed ${b.id}`,
+            time: b.admitted_at ? timeAgo(b.admitted_at) : 'Recently',
+            ts: new Date(b.admitted_at || 0),
+          })
+        })
+
+      // Pending clinical notes needing digitization
+      notes
+        .slice(0, 2)
+        .forEach(n => {
+          items.push({
+            id: `note-${n.id}`,
+            type: 'note',
+            msg: `Clinical note pending digitization — ${n.patient_name || 'Patient'} (${n.note_type || 'Note'})`,
+            time: n.created_at ? timeAgo(n.created_at) : 'Recently',
+            ts: new Date(n.created_at || 0),
+          })
+        })
+
+      // Pending lab tests
+      lab
+        .slice(0, 2)
+        .forEach(l => {
+          items.push({
+            id: `lab-${l.id}`,
+            type: 'lab',
+            msg: `Lab test ordered: ${l.test_name} — ${l.patient_name || `Patient ${l.patient_id}`}`,
+            time: l.ordered_at ? timeAgo(l.ordered_at) : 'Recently',
+            ts: new Date(l.ordered_at || 0),
+          })
+        })
+
+      // Waiting OPD patients
+      opd
+        .slice(0, 2)
+        .forEach(o => {
+          items.push({
+            id: `opd-${o.id}`,
+            type: 'opd',
+            msg: `OPD patient waiting: ${o.patient_name || o.patient_id} — Token ${o.token}`,
+            time: o.created_at ? timeAgo(o.created_at) : 'Today',
+            ts: new Date(o.created_at || 0),
+          })
+        })
+
+      // Sort newest first
+      items.sort((a, b) => b.ts - a.ts)
+      setNotifs(items)
+    } catch (e) {
+      console.error('Notifications fetch error:', e)
+    } finally {
+      setNotifLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchNotifs()
+    const interval = setInterval(fetchNotifs, 60000) // refresh every 60s
+    return () => clearInterval(interval)
+  }, [fetchNotifs])
 
   // Build nav with admin section injected if applicable
   const navSections = isAdmin ? [...BASE_NAV, ADMIN_NAV] : BASE_NAV
@@ -78,7 +174,9 @@ export default function DashboardLayout() {
   const isActive = (path) =>
     path === '/app/dashboard' ? location.pathname === '/app/dashboard' : location.pathname.startsWith(path)
 
-  const unreadCount = NOTIFICATIONS.filter(n => n.unread).length
+  const unreadCount = notifs.filter(n => !readIds.has(n.id)).length
+
+  const markAllRead = () => setReadIds(new Set(notifs.map(n => n.id)))
 
   const initials = user?.name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'AD'
 
@@ -185,14 +283,32 @@ export default function DashboardLayout() {
                 <div style={{ position: 'absolute', top: 'calc(100% + 0.5rem)', right: 0, width: 320, background: '#fff', borderRadius: 'var(--radius-xl)', border: '1px solid var(--gray-100)', boxShadow: 'var(--shadow-xl)', zIndex: 200, overflow: 'hidden' }}>
                   <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--gray-100)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span style={{ fontWeight: 700, fontSize: '0.9375rem', color: 'var(--gray-900)' }}>Notifications</span>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--primary-600)', fontWeight: 600, cursor: 'pointer' }}>Mark all read</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--primary-600)', fontWeight: 600, cursor: 'pointer' }} onClick={markAllRead}>Mark all read</span>
                   </div>
-                  {NOTIFICATIONS.map(n => (
-                    <div key={n.id} style={{ padding: '0.875rem 1.25rem', borderBottom: '1px solid var(--gray-50)', background: n.unread ? 'var(--primary-50)' : '#fff', cursor: 'pointer' }}>
-                      <div style={{ fontSize: '0.8125rem', color: 'var(--gray-700)', fontWeight: n.unread ? 600 : 400, lineHeight: 1.5 }}>{n.msg}</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--gray-400)', marginTop: '0.25rem' }}>{n.time}</div>
+                  {notifLoading && notifs.length === 0 ? (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--gray-400)', fontSize: '0.8rem' }}>Loading...</div>
+                  ) : notifs.length === 0 ? (
+                    <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--gray-400)', fontSize: '0.8rem' }}>No notifications</div>
+                  ) : (
+                    <div style={{ maxHeight: 340, overflowY: 'auto' }}>
+                      {notifs.map(n => {
+                        const isUnread = !readIds.has(n.id)
+                        const dot = { admission: '🏥', note: '📋', lab: '🧪', opd: '👤' }[n.type] || '🔔'
+                        return (
+                          <div
+                            key={n.id}
+                            onClick={() => setReadIds(prev => new Set([...prev, n.id]))}
+                            style={{ padding: '0.875rem 1.25rem', borderBottom: '1px solid var(--gray-50)', background: isUnread ? 'var(--primary-50)' : '#fff', cursor: 'pointer', transition: 'background 200ms' }}
+                          >
+                            <div style={{ fontSize: '0.8125rem', color: 'var(--gray-700)', fontWeight: isUnread ? 600 : 400, lineHeight: 1.5 }}>
+                              {dot} {n.msg}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--gray-400)', marginTop: '0.25rem' }}>{n.time}</div>
+                          </div>
+                        )
+                      })}
                     </div>
-                  ))}
+                  )}
                 </div>
               )}
             </div>

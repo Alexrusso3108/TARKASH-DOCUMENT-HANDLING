@@ -11,6 +11,7 @@ import OPD from './pages/OPD'
 import Doctors from './pages/Doctors'
 import ClinicalNotes from './pages/ClinicalNotes'
 import Laboratory from './pages/Laboratory'
+import Radiology from './pages/Radiology'
 import Pharmacy from './pages/Pharmacy'
 import Billing from './pages/Billing'
 import Reports from './pages/Reports'
@@ -55,6 +56,7 @@ export default function App() {
         <Route path="doctors" element={<Doctors />} />
         <Route path="clinical-notes" element={<ClinicalNotes />} />
         <Route path="laboratory" element={<Laboratory />} />
+        <Route path="radiology" element={<Radiology />} />
         <Route path="pharmacy" element={<Pharmacy />} />
         <Route path="billing" element={<Billing />} />
         <Route path="reports" element={<Reports />} />

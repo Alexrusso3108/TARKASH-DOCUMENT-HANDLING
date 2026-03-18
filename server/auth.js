@@ -185,31 +185,52 @@ router.get('/staff', requireAdmin, async (req, res) => {
 // POST /api/auth/staff  — Admin: create a staff login
 // ─────────────────────────────────────────────────────────────
 router.post('/staff', requireAdmin, async (req, res) => {
-  const { name, role, department, phone, email, password } = req.body
+  const { name, role, department, phone, email, password, qualification, experience, schedule } = req.body
   if (!name || !role || !password) return res.status(400).json({ error: 'Name, role and password are required' })
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' })
 
+  const client = await pool.connect()
   try {
+    await client.query('BEGIN')
+
     // Get hospital name for the login_id slug
-    const { rows: [hosp] } = await pool.query('SELECT name FROM hospitals WHERE id=$1', [req.user.hospitalId])
+    const { rows: [hosp] } = await client.query('SELECT name FROM hospitals WHERE id=$1', [req.user.hospitalId])
     let loginId = makeLoginId(role, name, hosp.name)
 
     // Make unique if clash
-    const { rows: clash } = await pool.query('SELECT id FROM users WHERE login_id=$1', [loginId])
+    const { rows: clash } = await client.query('SELECT id FROM users WHERE login_id=$1', [loginId])
     if (clash.length) loginId = loginId + Math.floor(Math.random() * 900 + 100)
 
     const hash = await bcrypt.hash(password, 12)
 
-    const { rows: [user] } = await pool.query(
+    const { rows: [user] } = await client.query(
       `INSERT INTO users (hospital_id, name, email, login_id, password_hash, role, department, phone, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id, name, login_id, role, department, phone, is_active, created_at`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id, name, login_id, role, department, phone, email, is_active, created_at`,
       [req.user.hospitalId, name, email || null, loginId, hash, role, department || null, phone || null, req.user.id]
     )
 
+    // If role is doctor, also create a record in the doctors table
+    if (role === 'doctor') {
+      // Generate a new doctor ID
+      const { rows: lastDoc } = await client.query(`SELECT id FROM doctors ORDER BY id DESC LIMIT 1`)
+      const lastNum = lastDoc.length ? parseInt(lastDoc[0].id.replace('D-', '')) : 0
+      const newDocId = `D-${String(lastNum + 1).padStart(3, '0')}`
+
+      await client.query(
+        `INSERT INTO doctors (id, hospital_id, name, department, qualification, experience, status, schedule, phone, email, user_id)
+         VALUES ($1,$2,$3,$4,$5,$6,'available',$7,$8,$9,$10)`,
+        [newDocId, req.user.hospitalId, name, department || 'General', qualification || '', experience || 0, schedule || '', phone || null, email || null, user.id]
+      )
+    }
+
+    await client.query('COMMIT')
     res.status(201).json(user)
   } catch (e) {
+    await client.query('ROLLBACK')
     if (e.code === '23505') return res.status(409).json({ error: 'A user with this login ID already exists' })
     res.status(500).json({ error: e.message })
+  } finally {
+    client.release()
   }
 })
 
@@ -223,9 +244,10 @@ router.patch('/staff/:id', requireAdmin, async (req, res) => {
   try {
     // Verify the staff belongs to the same hospital
     const { rows } = await pool.query(
-      'SELECT id FROM users WHERE id=$1 AND hospital_id=$2', [userId, req.user.hospitalId]
+      'SELECT id, role FROM users WHERE id=$1 AND hospital_id=$2', [userId, req.user.hospitalId]
     )
     if (!rows.length) return res.status(404).json({ error: 'Staff member not found' })
+    const staffRole = rows[0].role
 
     const updates = {}
     if (is_active !== undefined) updates.is_active = is_active
@@ -246,6 +268,23 @@ router.patch('/staff/:id', requireAdmin, async (req, res) => {
     const { rows: [updated] } = await pool.query(
       `UPDATE users SET ${clause} WHERE id=$1 RETURNING id, name, login_id, role, department, phone, is_active`, vals
     )
+
+    // Sync changes to the doctors table if the staff is a doctor
+    if (staffRole === 'doctor') {
+      const docUpdates = {}
+      if (name) docUpdates.name = name
+      if (department) docUpdates.department = department
+      if (phone) docUpdates.phone = phone
+      if (is_active !== undefined) docUpdates.status = is_active ? 'available' : 'on-leave'
+
+      const docKeys = Object.keys(docUpdates)
+      if (docKeys.length) {
+        const docClause = docKeys.map((k, i) => `${k}=$${i + 2}`).join(',')
+        const docVals = [userId, ...docKeys.map(k => docUpdates[k])]
+        await pool.query(`UPDATE doctors SET ${docClause} WHERE user_id=$1`, docVals)
+      }
+    }
+
     res.json(updated)
   } catch (e) {
     res.status(500).json({ error: e.message })
@@ -257,6 +296,9 @@ router.patch('/staff/:id', requireAdmin, async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 router.delete('/staff/:id', requireAdmin, async (req, res) => {
   try {
+    // Also delete the linked doctor record if exists
+    await pool.query('DELETE FROM doctors WHERE user_id=$1 AND hospital_id=$2',
+      [req.params.id, req.user.hospitalId])
     await pool.query('DELETE FROM users WHERE id=$1 AND hospital_id=$2 AND role!=\'admin\'',
       [req.params.id, req.user.hospitalId])
     res.json({ success: true })

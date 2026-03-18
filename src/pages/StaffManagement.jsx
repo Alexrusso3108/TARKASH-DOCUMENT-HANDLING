@@ -18,7 +18,7 @@ function getRoleStyle(role) {
 }
 
 function CreateStaffModal({ token, hospitalName, onClose, onCreated }) {
-  const [form, setForm] = useState({ name: '', role: 'doctor', department: '', phone: '', email: '', password: '' })
+  const [form, setForm] = useState({ name: '', role: 'doctor', department: '', phone: '', email: '', password: '', qualification: '', experience: '', schedule: '' })
   const [show, setShow] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -73,7 +73,7 @@ function CreateStaffModal({ token, hospitalName, onClose, onCreated }) {
             ⚠ The password is not stored in plaintext. Make sure to share it now.
           </p>
           <div style={{ display: 'flex', gap: '0.75rem' }}>
-            <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setCreated(null); setForm({ name: '', role: 'doctor', department: '', phone: '', email: '', password: '' }) }}>
+            <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => { setCreated(null); setForm({ name: '', role: 'doctor', department: '', phone: '', email: '', password: '', qualification: '', experience: '', schedule: '' }) }}>
               <UserPlus size={14} /> Add Another
             </button>
             <button className="btn btn-primary" style={{ flex: 1 }} onClick={onClose}>Done</button>
@@ -130,7 +130,37 @@ function CreateStaffModal({ token, hospitalName, onClose, onCreated }) {
               <label className="form-label">Email</label>
               <input className="form-input" type="email" placeholder="staff@email.com" value={form.email} onChange={e => set('email', e.target.value)} />
             </div>
-            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+          </div>
+
+          {/* Doctor-specific fields (shown only for doctor role) */}
+          {form.role === 'doctor' && (
+            <div style={{ marginTop: '1.25rem', padding: '1.25rem', background: 'rgba(99,102,241,0.04)', border: '1px solid rgba(99,102,241,0.15)', borderRadius: 'var(--radius-xl)' }}>
+              <div style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#6366f1', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                Doctor Profile Details
+              </div>
+              <div className="grid" style={{ gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                <div className="form-group">
+                  <label className="form-label">Qualification</label>
+                  <input className="form-input" placeholder="e.g. MBBS, MD" value={form.qualification} onChange={e => set('qualification', e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Experience (years)</label>
+                  <input className="form-input" type="number" placeholder="e.g. 10" value={form.experience} onChange={e => set('experience', e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Working Schedule</label>
+                  <input className="form-input" placeholder="e.g. Mon–Fri, 9AM–5PM" value={form.schedule} onChange={e => set('schedule', e.target.value)} />
+                </div>
+              </div>
+              <p style={{ fontSize: '0.7rem', color: 'var(--gray-400)', marginTop: '0.5rem' }}>
+                ℹ This doctor will automatically appear in the Doctors section after creation.
+              </p>
+            </div>
+          )}
+
+          <div className="grid" style={{ gridTemplateColumns: '1fr', gap: '1.125rem', marginTop: '1.25rem' }}>
+            <div className="form-group">
               <label className="form-label">Password <span style={{ color: 'var(--danger)' }}>*</span></label>
               <div style={{ position: 'relative' }}>
                 <input className="form-input" type={show ? 'text' : 'password'} style={{ paddingRight: '2.75rem' }} placeholder="Min 6 characters" value={form.password} onChange={e => set('password', e.target.value)} />
