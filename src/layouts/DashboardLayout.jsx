@@ -53,8 +53,9 @@ const BASE_NAV = [
 const ADMIN_NAV = {
   section: 'Admin',
   items: [
-    { label: 'Staff Management', path: '/app/staff', icon: ShieldCheck },
-    { label: 'Form Templates', path: '/app/form-templates', icon: FolderOpen },
+    { label: 'Staff Management',       path: '/app/staff',               icon: ShieldCheck },
+    { label: 'Form Templates',         path: '/app/form-templates',      icon: FolderOpen },
+    { label: 'Discharge Templates',    path: '/app/discharge-templates', icon: ClipboardList },
   ],
 }
 

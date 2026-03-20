@@ -19,6 +19,7 @@ import Settings from './pages/Settings'
 import StaffManagement from './pages/StaffManagement'
 import FormTemplates from './pages/FormTemplates'
 import PatientForms from './pages/PatientForms'
+import DischargeSummaryTemplates from './pages/DischargeSummaryTemplates'
 
 /** Redirects unauthenticated users to login */
 function PrivateRoute({ children }) {
@@ -68,6 +69,7 @@ export default function App() {
         {/* Forms */}
         <Route path="form-templates" element={<AdminRoute><FormTemplates /></AdminRoute>} />
         <Route path="patient-forms" element={<PatientForms />} />
+        <Route path="discharge-templates" element={<AdminRoute><DischargeSummaryTemplates /></AdminRoute>} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

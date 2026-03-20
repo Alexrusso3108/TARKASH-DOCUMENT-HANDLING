@@ -9,6 +9,33 @@ import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
 import { fileURLToPath } from 'url'
+// Built-in lightweight PDF text extractor (no npm package needed)
+function extractTextFromPdf(buffer) {
+  const str = buffer.toString('latin1')
+  const lines = []
+  // Extract strings from BT...ET blocks (text object markers)
+  const btEt = /BT[\s\S]*?ET/g
+  let match
+  while ((match = btEt.exec(str)) !== null) {
+    // Pull parenthesis-delimited strings: (hello world)
+    const paren = /\(([^)]{1,300})\)/g
+    let m2
+    while ((m2 = paren.exec(match[0])) !== null) {
+      const t = m2[1].replace(/\\n/g,'\n').replace(/\\r/g,'').replace(/\\t/g,' ').replace(/\\\\/g,'\\').trim()
+      if (t.length > 1) lines.push(t)
+    }
+    // Also pull hex strings: <48656c6c6f>
+    const hex = /<([0-9a-fA-F]{4,})>/g
+    while ((m2 = hex.exec(match[0])) !== null) {
+      const h = m2[1]
+      let t2 = ''
+      for (let i = 0; i < h.length - 1; i += 2) t2 += String.fromCharCode(parseInt(h.slice(i,i+2),16))
+      t2 = t2.replace(/[\x00-\x1f\x7f]/g,'').trim()
+      if (t2.length > 1) lines.push(t2)
+    }
+  }
+  return lines.join('\n')
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const UPLOADS_DIR = path.join(__dirname, 'uploads', 'forms')
@@ -127,6 +154,35 @@ async function initDB() {
       )`,
       `CREATE INDEX IF NOT EXISTS idx_radiology_hospital ON radiology_orders(hospital_id)`,
       `CREATE INDEX IF NOT EXISTS idx_radiology_status   ON radiology_orders(status)`,
+
+      // Discharge Summary Templates (rich-text, hospital-scoped)
+      `CREATE TABLE IF NOT EXISTS discharge_summary_templates (
+        id          SERIAL PRIMARY KEY,
+        hospital_id INTEGER REFERENCES hospitals(id) ON DELETE CASCADE NOT NULL,
+        name        VARCHAR(200) NOT NULL,
+        type        VARCHAR(100) DEFAULT 'General',
+        description TEXT,
+        content     TEXT NOT NULL DEFAULT '',
+        is_active   BOOLEAN DEFAULT TRUE,
+        created_by  INTEGER REFERENCES users(id),
+        created_at  TIMESTAMPTZ DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ DEFAULT NOW()
+      )`,
+      `ALTER TABLE discharge_summary_templates ADD COLUMN IF NOT EXISTS file_name  TEXT`,
+      `ALTER TABLE discharge_summary_templates ADD COLUMN IF NOT EXISTS file_size  INTEGER`,
+      `CREATE TABLE IF NOT EXISTS patient_discharge_summaries (
+        id              SERIAL PRIMARY KEY,
+        template_id     INTEGER REFERENCES discharge_summary_templates(id) ON DELETE CASCADE,
+        patient_id      VARCHAR(20) REFERENCES patients(id) ON DELETE CASCADE,
+        annotations     JSONB DEFAULT '[]',
+        status          VARCHAR(30) DEFAULT 'blank',
+        filled_by       VARCHAR(100),
+        notes           TEXT,
+        created_at      TIMESTAMPTZ DEFAULT NOW(),
+        updated_at      TIMESTAMPTZ DEFAULT NOW()
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_patient_ds_patient ON patient_discharge_summaries(patient_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_patient_ds_template ON patient_discharge_summaries(template_id)`,
     ]
     for (const sql of safeMigrations) {
       await c.query(sql)
@@ -631,6 +687,125 @@ app.post('/api/radiology/:id/upload-result', requireAuth, upload.single('result_
       [req.params.id, filePath, req.user.hospitalId]
     )
     if (!rows.length) return res.status(404).json({ error: 'Radiology order not found' })
+    res.json(rows[0])
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// ─────────────────────────────────────────────────────────────
+// DISCHARGE SUMMARY TEMPLATES (admin only, hospital-scoped)
+// ─────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────
+// DISCHARGE SUMMARY TEMPLATES  (hospital-scoped, PDF-based)
+// ─────────────────────────────────────────────────────────────
+
+// GET  — list this hospital's discharge templates
+app.get('/api/discharge-templates', requireAuth, async (req, res) => {
+  try {
+    const { category, search } = req.query
+    let q = `SELECT * FROM discharge_summary_templates
+              WHERE is_active = TRUE AND hospital_id = $1`
+    const params = [req.user.hospitalId]
+    if (category) { params.push(category); q += ` AND type = $${params.length}` }
+    if (search)   { params.push(`%${search}%`); q += ` AND (name ILIKE $${params.length} OR description ILIKE $${params.length})` }
+    q += ' ORDER BY created_at DESC'
+    const { rows } = await pool.query(q, params)
+    res.json(rows)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// POST — upload a PDF discharge template (admin only)
+app.post('/api/discharge-templates', requireAuth, upload.single('pdf'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No PDF uploaded' })
+    const { name, description, category } = req.body
+    if (!name?.trim()) return res.status(400).json({ error: 'Template name is required' })
+    const filePath = `/uploads/forms/${req.file.filename}`
+    const { rows } = await pool.query(
+      `INSERT INTO discharge_summary_templates
+         (hospital_id, name, description, type, file_path, file_name, file_size, content, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'',$8) RETURNING *`,
+      [req.user.hospitalId, name.trim(), description || '', category || 'General',
+       filePath, req.file.originalname, req.file.size, req.user.userId]
+    )
+    res.status(201).json(rows[0])
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// DELETE — remove a discharge template
+app.delete('/api/discharge-templates/:id', requireAuth, async (req, res) => {
+  try {
+    const hospitalId = req.user.hospitalId
+    const { rows } = await pool.query(
+      'SELECT file_path FROM discharge_summary_templates WHERE id=$1 AND hospital_id=$2',
+      [req.params.id, hospitalId]
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Template not found' })
+    // Delete physical file
+    const absPath = path.join(__dirname, rows[0].file_path)
+    if (fs.existsSync(absPath)) fs.unlinkSync(absPath)
+    await pool.query('DELETE FROM discharge_summary_templates WHERE id=$1 AND hospital_id=$2',
+      [req.params.id, hospitalId])
+    res.json({ success: true })
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// ─── INSTANCES (Filled summaries for patients) ───
+
+// GET — get summaries for a patient
+app.get('/api/discharge-summaries/patient/:patientId', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ps.*, dt.name AS template_name, dt.type AS category, dt.file_path, dt.file_name, dt.file_size
+       FROM patient_discharge_summaries ps
+       JOIN discharge_summary_templates dt ON ps.template_id = dt.id
+       WHERE ps.patient_id = $1 ORDER BY ps.created_at DESC`,
+      [req.params.patientId]
+    )
+    res.json(rows)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// POST — create/assign a summary instance
+app.post('/api/discharge-summaries', requireAuth, async (req, res) => {
+  try {
+    const { template_id, patient_id, filled_by } = req.body
+    if (!template_id || !patient_id) return res.status(400).json({ error: 'Missing IDs' })
+    const { rows } = await pool.query(
+      `INSERT INTO patient_discharge_summaries (template_id, patient_id, filled_by)
+       VALUES ($1,$2,$3) RETURNING *`,
+      [template_id, patient_id, filled_by || '']
+    )
+    res.status(201).json(rows[0])
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// PATCH — save annotations
+app.patch('/api/discharge-summaries/:id', requireAuth, async (req, res) => {
+  try {
+    const { annotations, status, filled_by, notes } = req.body
+    const { rows } = await pool.query(
+      `UPDATE patient_discharge_summaries
+       SET annotations=$2, status=$3, filled_by=$4, notes=$5, updated_at=NOW()
+       WHERE id=$1 RETURNING *`,
+      [req.params.id, JSON.stringify(annotations || []), status || 'blank', filled_by || '', notes || '']
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Summary instance not found' })
+    res.json(rows[0])
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// GET — get single instance
+app.get('/api/discharge-summaries/:id', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ps.*, dt.name AS template_name, dt.type AS category, dt.file_path, dt.file_name, dt.file_size
+       FROM patient_discharge_summaries ps
+       JOIN discharge_summary_templates dt ON ps.template_id = dt.id
+       WHERE ps.id = $1`,
+      [req.params.id]
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Summary not found' })
     res.json(rows[0])
   } catch (e) { res.status(500).json({ error: e.message }) }
 })

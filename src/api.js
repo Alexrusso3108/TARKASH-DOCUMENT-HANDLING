@@ -26,10 +26,10 @@ async function request(method, path, body) {
 }
 
 // Upload a PDF file (multipart/form-data)
-async function uploadPdf(path, file) {
+async function uploadPdf(path, file, fieldName = 'result_pdf') {
   const token = getToken()
   const form = new FormData()
-  form.append('result_pdf', file)
+  form.append(fieldName, file)
   const res = await fetch(`${BASE_URL}${path}`, {
     method: 'POST',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -103,6 +103,19 @@ export const api = {
   // Hospital Profile
   getHospital: () => request('GET', '/hospital'),
   updateHospital: (data) => request('PATCH', '/hospital', data),
+
+  // Discharge Summary Templates
+  getDischargeTemplates: (params = {}) => request('GET', `/discharge-templates?${new URLSearchParams(params)}`),
+  getDischargeTemplate: (id) => request('GET', `/discharge-templates/${id}`),
+  createDischargeTemplate: (data) => request('POST', '/discharge-templates', data), // Note: Manual FormData in component
+  updateDischargeTemplate: (id, data) => request('PATCH', `/discharge-templates/${id}`, data),
+  deleteDischargeTemplate: (id) => request('DELETE', `/discharge-templates/${id}`),
+
+  // Discharge Summary Instances (Filled versions)
+  getPatientDischargeSummaries: (patientId) => request('GET', `/discharge-summaries/patient/${patientId}`),
+  createDischargeSummary: (data) => request('POST', '/discharge-summaries', data),
+  saveDischargeSummaryAnnotations: (id, data) => request('PATCH', `/discharge-summaries/${id}`, data),
+  getDischargeSummaryInstance: (id) => request('GET', `/discharge-summaries/${id}`),
 
   // Reports
   getReports: () => request('GET', '/reports'),

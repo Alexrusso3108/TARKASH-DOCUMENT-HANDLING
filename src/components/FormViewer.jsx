@@ -4,16 +4,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Pen, Eraser, Undo2, Trash2, Save, CheckCircle, Loader,
-  ChevronLeft, ChevronRight, ZoomIn, ZoomOut, X, Lock, Maximize2,
+  ChevronLeft, ChevronRight, ZoomIn, ZoomOut, X, Lock, Maximize2, Type, Download,
 } from 'lucide-react'
 import { api, SERVER_URL } from '../api'
 import { useAuth } from '../context/AuthContext'
 
 // ─── Ink Canvas ──────────────────────────────────────────────────────────────
 // InkCanvas — canErase controls whether eraser/undo/clear tools are available
-function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, canErase }) {
+function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, canErase, allowDrawing = true, scale = 1 }) {
   const canvasRef = useRef(null)
-  const [tool, setTool] = useState('pen')
+  const [tool, setTool] = useState(allowDrawing ? 'pen' : 'type')
   const [color, setColor] = useState('#1a1a2e')
   const [lineWidth, setLineWidth] = useState(2.5)
   const [strokes, setStrokes] = useState(initialAnnotations || [])
@@ -23,12 +23,58 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
   const isDrawing = useRef(false)
   const lastPoint = useRef(null)
   const ctxRef = useRef(null)
+  const [activeText, setActiveText] = useState(null) // {x, y, content}
+  const textInputRef = useRef(null)
+
+  const commitText = useCallback(() => {
+    if (!activeText || !activeText.content.trim()) {
+      setActiveText(null)
+      return
+    }
+    const newTextAnnotation = {
+      type: 'text',
+      content: activeText.content,
+      x: activeText.canvasX,
+      y: activeText.canvasY,
+      color: color,
+      lineWidth: lineWidth,
+    }
+    setStrokes(prev => [...prev, newTextAnnotation])
+    setSaved(false)
+    setActiveText(null)
+  }, [activeText, color, lineWidth])
+
+  // Bulletproof focus resolution: Wait for native mouseup/click to finish,
+  // then forcefully focus the active text area. 
+  useEffect(() => {
+    if (activeText && textInputRef.current && document.activeElement !== textInputRef.current) {
+      const timer = setTimeout(() => {
+        if (textInputRef.current) {
+          textInputRef.current.focus()
+        }
+      }, 50)
+      return () => clearTimeout(timer)
+    }
+  }, [activeText])
 
   // ── Redraw all strokes on a ctx ──────────────────────────────────────────
   const redrawAll = useCallback((ctx, strokeList) => {
     if (!ctx || !canvasRef.current) return
     ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
     for (const stroke of strokeList) {
+      if (stroke.type === 'text') {
+        ctx.save()
+        ctx.fillStyle = stroke.color || '#1a1a2e'
+        ctx.font = `${(stroke.lineWidth || 2.5) * 6}px "Inter", "Segoe UI", sans-serif`
+        ctx.textBaseline = 'top'
+        // Handle multiline text
+        const lines = (stroke.content || '').split('\n')
+        lines.forEach((line, i) => {
+          ctx.fillText(line, stroke.x, stroke.y + (i * (stroke.lineWidth || 2.5) * 7.5))
+        })
+        ctx.restore()
+        continue
+      }
       if (!stroke.points || stroke.points.length < 2) continue
       ctx.save()
       if (stroke.tool === 'eraser') {
@@ -70,38 +116,45 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
     ctxRef.current = ctx
     // Redraw saved strokes now that canvas has correct dimensions
     redrawAll(ctx, strokes)
-  }, [viewportSize]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [viewportSize, strokes, redrawAll]) // eslint-disable-line react-hooks/exhaustive-deps
   // (strokes intentionally omitted — we only redraw on viewport change,
   //  live drawing is handled incrementally in pointer events)
 
-  // ── Pointer helpers ───────────────────────────────────────────────────────
-  const getPos = useCallback((e) => {
-    const canvas = canvasRef.current
-    const rect = canvas.getBoundingClientRect()
-    return {
-      x: (e.clientX - rect.left) * (canvas.width / rect.width),
-      y: (e.clientY - rect.top) * (canvas.height / rect.height),
-    }
-  }, [])
-
   const onPointerDown = useCallback((e) => {
-    // Non-admin cannot use eraser even if tool state was set by other means
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    const domX = e.clientX - rect.left
+    const domY = e.clientY - rect.top
+    const canvasX = domX * (canvas.width / rect.width)
+    const canvasY = domY * (canvas.height / rect.height)
+
+    if (tool === 'type') {
+      if (activeText && activeText.content.trim()) {
+        commitText()
+      }
+      setActiveText({ domX, domY, canvasX, canvasY, content: '' })
+      return
+    }
+
     if (e.pointerType === 'touch') return
-    if (tool === 'eraser' && !canErase) return
     e.preventDefault()
-    canvasRef.current.setPointerCapture(e.pointerId)
+    canvas.setPointerCapture(e.pointerId)
     isDrawing.current = true
-    const pos = getPos(e)
-    lastPoint.current = pos
+    lastPoint.current = { x: canvasX, y: canvasY }
     const pressure = e.pressure > 0 ? e.pressure : 0.5
     const width = tool === 'eraser' ? lineWidth * 6 : lineWidth * (0.5 + pressure * 1.5)
-    setCurrentStroke({ tool, color, width, opacity: tool === 'eraser' ? 1 : Math.max(0.3, pressure * 1.2), points: [pos] })
-  }, [tool, color, lineWidth, getPos])
+    setCurrentStroke({ tool, color, width, opacity: tool === 'eraser' ? 1 : Math.max(0.3, pressure * 1.2), points: [{ x: canvasX, y: canvasY }] })
+  }, [tool, color, lineWidth, activeText, commitText])
 
   const onPointerMove = useCallback((e) => {
     if (!isDrawing.current || !currentStroke) return
-    e.preventDefault()
-    const pos = getPos(e)
+    const canvas = canvasRef.current
+    const rect = canvas.getBoundingClientRect()
+    const canvasPos = {
+      x: (e.clientX - rect.left) * (canvas.width / rect.width),
+      y: (e.clientY - rect.top) * (canvas.height / rect.height)
+    }
     const pressure = e.pressure > 0 ? e.pressure : 0.5
     const width = tool === 'eraser' ? lineWidth * 6 : lineWidth * (0.5 + pressure * 1.5)
     const ctx = ctxRef.current
@@ -109,7 +162,6 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
       ctx.save()
       if (tool === 'eraser') {
         ctx.globalCompositeOperation = 'destination-out'
-        ctx.strokeStyle = 'rgba(0,0,0,1)'
         ctx.lineWidth = width
       } else {
         ctx.globalCompositeOperation = 'source-over'
@@ -117,18 +169,16 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
         ctx.lineWidth = width
         ctx.globalAlpha = Math.max(0.3, pressure * 1.2)
       }
-      ctx.lineCap = 'round'
-      ctx.lineJoin = 'round'
       ctx.beginPath()
       const prev = lastPoint.current
       ctx.moveTo(prev.x, prev.y)
-      ctx.quadraticCurveTo(prev.x, prev.y, (prev.x + pos.x) / 2, (prev.y + pos.y) / 2)
+      ctx.quadraticCurveTo(prev.x, prev.y, (prev.x + canvasPos.x) / 2, (prev.y + canvasPos.y) / 2)
       ctx.stroke()
       ctx.restore()
     }
-    lastPoint.current = pos
-    setCurrentStroke(prev => ({ ...prev, points: [...prev.points, pos] }))
-  }, [isDrawing, currentStroke, tool, color, lineWidth, getPos])
+    lastPoint.current = canvasPos
+    setCurrentStroke(prev => ({ ...prev, points: [...prev.points, canvasPos] }))
+  }, [isDrawing, currentStroke, tool, color, lineWidth])
 
   const onPointerUp = useCallback(() => {
     if (!isDrawing.current || !currentStroke) return
@@ -159,9 +209,26 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
   }
 
   const handleSave = async () => {
+    let finalStrokes = [...strokes]
+    
+    // Commit any active text being typed before saving
+    if (activeText && activeText.content.trim()) {
+      const newText = {
+        type: 'text',
+        content: activeText.content,
+        x: activeText.canvasX,
+        y: activeText.canvasY,
+        color: color,
+        lineWidth: lineWidth,
+      }
+      finalStrokes = [...finalStrokes, newText]
+      setStrokes(finalStrokes)
+      setActiveText(null)
+    }
+
     setSaving(true)
     try {
-      await onSave(strokes, 'in-progress')
+      await onSave(finalStrokes, 'in-progress')
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch (e) { alert('Save failed: ' + e.message) } finally { setSaving(false) }
@@ -178,17 +245,32 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
 
         {/* Tool selector: pen always visible; eraser only for admin */}
         <div style={{ display: 'flex', background: 'var(--gray-100)', borderRadius: 8, padding: '0.25rem' }}>
-          <button onClick={() => setTool('pen')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 32, borderRadius: 6, border: 'none', cursor: 'pointer', background: tool === 'pen' ? '#fff' : 'transparent', color: tool === 'pen' ? 'var(--primary-600)' : 'var(--gray-500)', boxShadow: tool === 'pen' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none', transition: 'all 150ms' }}>
-            <Pen size={15} />
-          </button>
-          {canErase ? (
-            <button onClick={() => setTool('eraser')} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 32, borderRadius: 6, border: 'none', cursor: 'pointer', background: tool === 'eraser' ? '#fff' : 'transparent', color: tool === 'eraser' ? 'var(--primary-600)' : 'var(--gray-500)', boxShadow: tool === 'eraser' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none', transition: 'all 150ms' }}>
-              <Eraser size={15} />
+          {allowDrawing && (
+            <button onClick={() => setTool('pen')} title="Pen Tool" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 32, borderRadius: 6, border: 'none', cursor: 'pointer', background: tool === 'pen' ? '#fff' : 'transparent', color: tool === 'pen' ? 'var(--primary-600)' : 'var(--gray-500)', boxShadow: tool === 'pen' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none', transition: 'all 150ms' }}>
+              <Pen size={15} />
             </button>
-          ) : (
-            <div title="Only admins can erase content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 32, borderRadius: 6, color: 'var(--gray-300)', cursor: 'not-allowed' }}>
-              <Lock size={13} />
-            </div>
+          )}
+          <button onClick={() => setTool('type')} title="Text Tool (Word-like typing)" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 32, borderRadius: 6, border: 'none', cursor: 'pointer', background: tool === 'type' ? '#fff' : 'transparent', color: tool === 'type' ? 'var(--primary-600)' : 'var(--gray-500)', boxShadow: tool === 'type' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none', transition: 'all 150ms' }}>
+            <Type size={16} />
+          </button>
+          {allowDrawing && (
+            <button
+              onClick={() => canErase && setTool('eraser')}
+              title={canErase ? 'Eraser Tool' : 'Eraser locked — form has been saved. Admins can always erase.'}
+              disabled={!canErase}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                width: canErase ? 36 : 54, height: 32, borderRadius: 6, border: 'none',
+                cursor: canErase ? 'pointer' : 'not-allowed',
+                background: tool === 'eraser' ? '#fff' : 'transparent',
+                color: canErase ? (tool === 'eraser' ? 'var(--primary-600)' : 'var(--gray-500)') : 'var(--gray-300)',
+                boxShadow: tool === 'eraser' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none',
+                transition: 'all 150ms', opacity: canErase ? 1 : 0.6,
+              }}
+            >
+              <Eraser size={15} />
+              {!canErase && <Lock size={10} />}
+            </button>
           )}
         </div>
         {/* Colors (pen only) */}
@@ -208,12 +290,20 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
           ))}
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>
-          {canErase && (
-            <>
-              <button className="btn btn-secondary btn-sm" onClick={handleUndo} disabled={strokes.length === 0}><Undo2 size={14} /></button>
-              <button className="btn btn-secondary btn-sm" onClick={handleClear} disabled={strokes.length === 0}><Trash2 size={14} /></button>
-            </>
-          )}
+          <button className="btn btn-secondary btn-sm" onClick={handleUndo}
+            disabled={!canErase || strokes.length === 0}
+            title={!canErase ? 'Locked after save' : 'Undo last stroke'}
+            style={{ opacity: canErase ? 1 : 0.4 }}
+          >
+            <Undo2 size={14} />
+          </button>
+          <button className="btn btn-secondary btn-sm" onClick={handleClear}
+            disabled={!canErase || strokes.length === 0}
+            title={!canErase ? 'Locked after save' : 'Clear all strokes'}
+            style={{ opacity: canErase ? 1 : 0.4 }}
+          >
+            <Trash2 size={14} />
+          </button>
           <button className={`btn btn-sm ${saved ? 'btn-teal' : 'btn-primary'}`} onClick={handleSave} disabled={saving}>
             {saving ? <Loader size={13} className="spin" /> : saved ? <CheckCircle size={13} /> : <Save size={13} />}
             {saving ? ' Saving...' : saved ? ' Saved!' : ' Save'}
@@ -226,15 +316,89 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
         <div style={{ position: 'relative', display: 'inline-block', lineHeight: 0 }}>
           {/* PDF layer */}
           <canvas id={`pdf-canvas-${pdfPage}`} style={{ display: 'block' }} />
-          {/* Ink layer — exactly overlays the PDF canvas */}
+          {/* Ink layer — exactly overlays the PDF canvas, no pointer events when type tool active */}
           <canvas
             ref={canvasRef}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={onPointerUp}
-            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', cursor: tool === 'eraser' ? 'cell' : 'crosshair', touchAction: 'none' }}
+            onPointerDown={tool !== 'type' ? onPointerDown : undefined}
+            onPointerMove={tool !== 'type' ? onPointerMove : undefined}
+            onPointerUp={tool !== 'type' ? onPointerUp : undefined}
+            onPointerCancel={tool !== 'type' ? onPointerUp : undefined}
+            style={{
+              position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+              cursor: tool === 'eraser' ? 'cell' : 'crosshair',
+              touchAction: 'none',
+              pointerEvents: tool === 'type' ? 'none' : 'auto',
+            }}
           />
+
+          {/* Transparent click-capture layer for type tool — sits above canvas */}
+          {tool === 'type' && !activeText && (
+            <div
+              style={{
+                position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+                cursor: 'text', zIndex: 10, background: 'transparent',
+              }}
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect()
+                const domX = e.clientX - rect.left
+                const domY = e.clientY - rect.top
+                const canvas = canvasRef.current
+                const canvasX = canvas ? domX * (canvas.width / rect.width) : domX
+                const canvasY = canvas ? domY * (canvas.height / rect.height) : domY
+                setActiveText({ domX, domY, canvasX, canvasY, content: '' })
+              }}
+            />
+          )}
+
+          {/* Floating Text Input — positioned at click location */}
+          {activeText && (
+            <div
+              style={{
+                position: 'absolute',
+                top: activeText.domY,
+                left: activeText.domX,
+                zIndex: 1000,
+              }}
+            >
+              <textarea
+                ref={textInputRef}
+                value={activeText.content}
+                autoFocus
+                onChange={e => setActiveText(prev => prev ? { ...prev, content: e.target.value } : prev)}
+                onKeyDown={e => {
+                  if (e.key === 'Escape') { commitText(); e.preventDefault() }
+                }}
+                onBlur={() => {
+                  // Small delay so clicking elsewhere on the PDF creates a NEW box
+                  // rather than committing immediately and eating the next click
+                  setTimeout(() => commitText(), 100)
+                }}
+                placeholder="Type here..."
+                style={{
+                  background: 'rgba(255,255,255,0.97)',
+                  border: `2px solid ${color}`,
+                  borderRadius: '6px',
+                  padding: '8px 12px',
+                  color: color,
+                  font: `400 15px "Segoe UI", "Inter", sans-serif`,
+                  minWidth: '200px',
+                  minHeight: '44px',
+                  outline: 'none',
+                  boxShadow: '0 4px 24px rgba(0,0,0,0.35)',
+                  display: 'block',
+                  margin: 0,
+                  resize: 'both',
+                  lineHeight: 1.5,
+                }}
+              />
+              <div style={{
+                fontSize: '0.65rem', color: '#6b7280', marginTop: 4,
+                textAlign: 'right', userSelect: 'none',
+              }}>
+                Click elsewhere or press Esc to place
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -349,18 +513,129 @@ export default function FormViewer({ formInstance, onClose, onAnnotationsSaved }
     const thisPage = strokes.map(s => ({ ...s, page }))
     const merged = [...otherPages, ...thisPage]
 
-    const updated = await api.savePatientFormAnnotations(formInstance.id, {
-      annotations: merged,
-      status,
-      filled_by: formInstance.filled_by || '',
-    })
+    let updated;
+    if (formInstance.type === 'discharge') {
+      // Use discharge summaries API
+      updated = await api.saveDischargeSummaryAnnotations(formInstance.id, {
+        annotations: merged,
+        status,
+        filled_by: formInstance.filled_by || ''
+      })
+    } else {
+      // Use standard patient forms API
+      updated = await api.savePatientFormAnnotations(formInstance.id, {
+        annotations: merged,
+        status,
+        filled_by: formInstance.filled_by || '',
+      })
+    }
+
     const saved = Array.isArray(updated.annotations) ? updated.annotations : merged
     setAnnotations(saved)
     if (onAnnotationsSaved) onAnnotationsSaved(saved, updated.status || status)
     return updated
   }
 
-  // Annotations for the current page only
+  // ── Download PDF with annotations baked in ───────────────────────────────
+  const [downloading, setDownloading] = useState(false)
+
+  const handleDownload = async () => {
+    if (!pdfDoc) return
+    setDownloading(true)
+    try {
+      const { PDFDocument, rgb } = await import('pdf-lib')
+      const pdfjsLib = await import('pdfjs-dist')
+      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+        'pdfjs-dist/build/pdf.worker.mjs', import.meta.url
+      ).toString()
+
+      // Re-load the raw PDF bytes so pdf-lib can embed pages
+      const pdfBytes = await fetch(pdfUrl).then(r => r.arrayBuffer())
+      const pdfLibDoc = await PDFDocument.load(pdfBytes)
+      const pdfLibPages = pdfLibDoc.getPages()
+
+      // For each page, render PDF + annotations to an offscreen canvas,
+      // then embed as a hi-res PNG image stamp on the pdf-lib page
+      const DOWNLOAD_SCALE = 2  // 2x = ~144dpi — crisp on screen + print
+
+      for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+        const pdfPage = await pdfDoc.getPage(pageNum)
+        const viewport = pdfPage.getViewport({ scale: DOWNLOAD_SCALE })
+
+        // Off-screen canvas to render PDF page
+        const offCanvas = document.createElement('canvas')
+        offCanvas.width = viewport.width
+        offCanvas.height = viewport.height
+        const ctx = offCanvas.getContext('2d')
+        await pdfPage.render({ canvasContext: ctx, viewport }).promise
+
+        // Draw annotations for this page
+        const pageAnns = annotations.filter(s => s.page === pageNum)
+        for (const stroke of pageAnns) {
+          if (stroke.type === 'text') {
+            ctx.save()
+            ctx.fillStyle = stroke.color || '#1a1a2e'
+            const fontSize = (stroke.lineWidth || 2.5) * 6
+            ctx.font = `${fontSize}px "Segoe UI", "Inter", sans-serif`
+            ctx.textBaseline = 'top'
+            const lines = (stroke.content || '').split('\n')
+            lines.forEach((line, i) => {
+              ctx.fillText(line, stroke.x, stroke.y + i * fontSize * 1.25)
+            })
+            ctx.restore()
+          } else if (stroke.points && stroke.points.length > 1) {
+            ctx.save()
+            if (stroke.tool === 'eraser') {
+              ctx.globalCompositeOperation = 'destination-out'
+              ctx.lineWidth = stroke.width * 4
+            } else {
+              ctx.globalCompositeOperation = 'source-over'
+              ctx.strokeStyle = stroke.color || '#1a1a2e'
+              ctx.lineWidth = stroke.width || 2.5
+              ctx.globalAlpha = stroke.opacity || 1
+            }
+            ctx.lineCap = 'round'
+            ctx.lineJoin = 'round'
+            ctx.beginPath()
+            ctx.moveTo(stroke.points[0].x, stroke.points[0].y)
+            for (let i = 1; i < stroke.points.length; i++) {
+              const prev = stroke.points[i - 1]
+              const curr = stroke.points[i]
+              ctx.quadraticCurveTo(prev.x, prev.y, (prev.x + curr.x) / 2, (prev.y + curr.y) / 2)
+            }
+            ctx.stroke()
+            ctx.restore()
+          }
+        }
+
+        // Embed the merged canvas as PNG on the pdf-lib page
+        const pngBytes = await new Promise(resolve => offCanvas.toBlob(b => b.arrayBuffer().then(resolve), 'image/png'))
+        const pngImage = await pdfLibDoc.embedPng(pngBytes)
+        const libPage = pdfLibPages[pageNum - 1]
+        const { width, height } = libPage.getSize()
+        libPage.drawImage(pngImage, { x: 0, y: 0, width, height })
+      }
+
+      // Download the final PDF
+      const finalBytes = await pdfLibDoc.save()
+      const blob = new Blob([finalBytes], { type: 'application/pdf' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const name = formInstance.patient_name
+        ? `${formInstance.template_name} - ${formInstance.patient_name}.pdf`
+        : `${formInstance.template_name}.pdf`
+      a.download = name.replace(/[/\\:*?"<>|]/g, '_')
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      alert('Download failed: ' + err.message)
+      console.error(err)
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   const pageAnnotations = annotations.filter(s => s.page === page)
 
   return (
@@ -409,6 +684,23 @@ export default function FormViewer({ formInstance, onClose, onAnnotationsSaved }
         <button onClick={onClose} style={{ background: 'rgba(239,68,68,0.15)', border: 'none', borderRadius: 8, width: 36, height: 36, cursor: 'pointer', color: '#f87171', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <X size={18} />
         </button>
+        {/* Download button */}
+        <button
+          onClick={handleDownload}
+          disabled={downloading || annotations.length === 0}
+          title={annotations.length === 0 ? 'Save annotations first, then download' : 'Download annotated PDF'}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '0.4rem',
+            background: downloading ? 'rgba(99,102,241,0.3)' : 'rgba(99,102,241,0.85)',
+            border: 'none', borderRadius: 8, padding: '0.4rem 0.9rem',
+            color: '#fff', cursor: annotations.length === 0 ? 'not-allowed' : 'pointer',
+            fontSize: '0.825rem', fontWeight: 600, opacity: annotations.length === 0 ? 0.5 : 1,
+            transition: 'all 150ms',
+          }}
+        >
+          {downloading ? <Loader size={14} className="spin" /> : <Download size={14} />}
+          {downloading ? ' Generating...' : ' Download PDF'}
+        </button>
       </div>
 
       {/* Content — fills all remaining height; InkCanvas handles its own scroll */}
@@ -428,7 +720,9 @@ export default function FormViewer({ formInstance, onClose, onAnnotationsSaved }
             pdfPage={page}
             viewportSize={viewportSize}
             onSave={handleSave}
-            canErase={isAdmin}
+            canErase={canErase}
+            allowDrawing={true}
+            scale={scale}
           />
         )}
       </div>

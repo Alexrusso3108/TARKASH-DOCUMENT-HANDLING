@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Search, Plus, Eye, FileText, MoreHorizontal, Loader,
   X, Pen, ClipboardList, Activity, Phone, Droplets,
-  BedDouble, Calendar, ChevronRight, CheckCircle, FolderOpen, Upload
+  BedDouble, Calendar, ChevronRight, CheckCircle, FolderOpen, Upload, Download
 } from 'lucide-react'
 import { api } from '../api'
 import FormViewer from '../components/FormViewer'
@@ -138,6 +138,11 @@ function PatientPanel({ patient, onClose }) {
   const [loadingForms, setLoadingForms] = useState(false)
   const [assigningId, setAssigningId] = useState(null)
   const [openForm, setOpenForm] = useState(null) // open FormViewer
+  // Discharge summary state
+  const [dischargeSummaries, setDischargeSummaries] = useState([])
+  const [dischargeTpls, setDischargeTpls] = useState([])
+  const [loadingDischarge, setLoadingDischarge] = useState(false)
+  const [assigningDischargeId, setAssigningDischargeId] = useState(null)
 
   useEffect(() => {
     if (tab !== 'forms') return
@@ -151,27 +156,44 @@ function PatientPanel({ patient, onClose }) {
     }).catch(console.error).finally(() => setLoadingForms(false))
   }, [tab, patient.id])
 
+  useEffect(() => {
+    if (tab !== 'discharge') return
+    setLoadingDischarge(true)
+    Promise.all([
+      api.getPatientDischargeSummaries(patient.id),
+      api.getDischargeTemplates(),
+    ]).then(([summaries, tpls]) => {
+      setDischargeSummaries(summaries)
+      setDischargeTpls(tpls)
+    }).catch(console.error).finally(() => setLoadingDischarge(false))
+  }, [tab, patient.id])
+
   const handleAssign = async (template) => {
     setAssigningId(template.id)
     try {
       const form = await api.createPatientForm({ template_id: template.id, patient_id: patient.id, filled_by: '' })
       const enriched = { ...form, template_name: template.name, category: template.category, file_path: template.file_path, file_name: template.file_name }
-      setForms(prev => {
-        const exists = prev.find(f => f.template_id === template.id)
-        if (exists) return prev
-        return [enriched, ...prev]
-      })
+      setForms(prev => [enriched, ...prev])
+      setOpenForm(enriched)
     } catch (e) { alert('Failed: ' + e.message) } finally { setAssigningId(null) }
+  }
+
+  const handleAssignDischarge = async (tpl) => {
+    setAssigningDischargeId(tpl.id)
+    try {
+      const summary = await api.createDischargeSummary({ template_id: tpl.id, patient_id: patient.id, filled_by: '' })
+      const enriched = { ...summary, template_name: tpl.name, category: tpl.type, file_path: tpl.file_path, file_name: tpl.file_name, type: 'discharge' }
+      setDischargeSummaries(prev => [enriched, ...prev])
+      setOpenForm(enriched)
+    } catch (e) { alert('Failed: ' + e.message) } finally { setAssigningDischargeId(null) }
   }
 
   // Update the form card in the panel after annotations are saved
   const handleAnnotationsSaved = useCallback((updatedAnnotations, newStatus) => {
     if (!openForm) return
-    setForms(prev => prev.map(f =>
-      f.id === openForm.id
-        ? { ...f, annotations: updatedAnnotations, status: newStatus || f.status }
-        : f
-    ))
+    const updater = f => f.id === openForm.id ? { ...f, annotations: updatedAnnotations, status: newStatus || f.status } : f
+    setForms(prev => prev.map(updater))
+    setDischargeSummaries(prev => prev.map(updater))
   }, [openForm])
 
   const infoRows = [
@@ -233,6 +255,7 @@ function PatientPanel({ patient, onClose }) {
           {[
             { id: 'overview', label: 'Overview', icon: Activity },
             { id: 'forms', label: 'Forms', icon: ClipboardList },
+            { id: 'discharge', label: 'Discharge', icon: FileText },
           ].map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -240,13 +263,13 @@ function PatientPanel({ patient, onClose }) {
               style={{
                 flex: 1, padding: '0.875rem', border: 'none', background: 'none', cursor: 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                fontWeight: tab === id ? 700 : 500, fontSize: '0.875rem',
+                fontWeight: tab === id ? 700 : 500, fontSize: '0.8rem',
                 color: tab === id ? 'var(--primary-600)' : 'var(--gray-500)',
                 borderBottom: `2.5px solid ${tab === id ? 'var(--primary-500)' : 'transparent'}`,
                 transition: 'all 150ms',
               }}
             >
-              <Icon size={15} />{label}
+              <Icon size={14} />{label}
             </button>
           ))}
         </div>
@@ -357,37 +380,47 @@ function PatientPanel({ patient, onClose }) {
                   {templates.length > 0 && (
                     <div>
                       <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.875rem' }}>
-                        Available Templates — Click to Assign
+                        Templates — Click to Assign
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
-                        {templates
-                          .filter(t => !forms.find(f => f.template_id === t.id))
-                          .map(t => (
+                        {templates.map(t => {
+                          const count = forms.filter(f => f.template_id === t.id).length
+                          return (
                             <div
                               key={t.id}
                               onClick={() => handleAssign(t)}
                               style={{
                                 display: 'flex', alignItems: 'center', gap: '0.875rem',
-                                padding: '0.875rem 1rem', background: 'var(--gray-50)',
-                                borderRadius: 'var(--radius-lg)', border: '1px dashed var(--gray-200)',
+                                padding: '0.875rem 1rem', background: count > 0 ? 'var(--primary-50)' : 'var(--gray-50)',
+                                borderRadius: 'var(--radius-lg)', border: `1px dashed ${count > 0 ? 'var(--primary-200)' : 'var(--gray-200)'}`,
                                 cursor: assigningId === t.id ? 'wait' : 'pointer',
                                 transition: 'all 150ms', opacity: assigningId === t.id ? 0.6 : 1,
                               }}
                               onMouseEnter={e => { if (assigningId !== t.id) { e.currentTarget.style.background = 'var(--primary-50)'; e.currentTarget.style.borderColor = 'var(--primary-300)' } }}
-                              onMouseLeave={e => { e.currentTarget.style.background = 'var(--gray-50)'; e.currentTarget.style.borderColor = 'var(--gray-200)' }}
+                              onMouseLeave={e => { e.currentTarget.style.background = count > 0 ? 'var(--primary-50)' : 'var(--gray-50)'; e.currentTarget.style.borderColor = count > 0 ? 'var(--primary-200)' : 'var(--gray-200)' }}
                             >
-                              <div style={{ width: 36, height: 36, borderRadius: 8, background: 'var(--gray-200)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                {assigningId === t.id ? <Loader size={15} className="spin" /> : <Plus size={15} color="var(--gray-500)" />}
+                              <div style={{ width: 36, height: 36, borderRadius: 8, background: count > 0 ? 'var(--primary-100)' : 'var(--gray-200)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                {assigningId === t.id ? <Loader size={15} className="spin" /> : <Plus size={15} color={count > 0 ? 'var(--primary-600)' : 'var(--gray-500)'} />}
                               </div>
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontWeight: 600, fontSize: '0.8125rem', color: 'var(--gray-700)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</div>
+                                <div style={{ fontWeight: 600, fontSize: '0.8125rem', color: 'var(--gray-700)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                                  {t.name}
+                                  {count > 0 && (
+                                    <span style={{ fontSize: '0.58rem', fontWeight: 700, padding: '0.1rem 0.35rem', borderRadius: 999, background: 'rgba(245,158,11,0.12)', color: '#b45309', flexShrink: 0 }}>
+                                      {count}×
+                                    </span>
+                                  )}
+                                </div>
                                 <span style={{ ...(CATEGORY_COLORS[t.category] || CATEGORY_COLORS.General), fontSize: '0.6rem', fontWeight: 700, padding: '0.15rem 0.4rem', borderRadius: 999, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                                   {t.category}
                                 </span>
                               </div>
-                              <span style={{ fontSize: '0.75rem', color: 'var(--primary-500)', fontWeight: 600 }}>Assign</span>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--primary-500)', fontWeight: 600, flexShrink: 0 }}>
+                                {count > 0 ? 'Add Copy' : 'Assign'}
+                              </span>
                             </div>
-                          ))}
+                          )
+                        })}
                       </div>
                     </div>
                   )}
@@ -401,6 +434,103 @@ function PatientPanel({ patient, onClose }) {
                       <div style={{ fontSize: '0.8125rem', color: 'var(--gray-400)' }}>
                         Ask an admin to upload form templates from the Form Templates page.
                       </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+          {tab === 'discharge' && (
+            <div>
+              {loadingDischarge ? (
+                <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--gray-400)' }}>
+                  <Loader size={22} className="spin" style={{ display: 'inline-block' }} />
+                </div>
+              ) : (
+                <>
+                  {/* Saved summaries */}
+                  {dischargeSummaries.length > 0 && (
+                    <div style={{ marginBottom: '1.5rem' }}>
+                      <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.75rem' }}>
+                        Saved Summaries ({dischargeSummaries.length})
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        {dischargeSummaries.map(s => (
+                          <div
+                            key={s.id}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: '0.875rem',
+                              padding: '1rem', background: '#fff', borderRadius: 'var(--radius-lg)',
+                              border: '1.5px solid var(--gray-100)', position: 'relative', overflow: 'hidden',
+                            }}
+                          >
+                            <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: s.status === 'completed' ? '#10b981' : s.status === 'in-progress' ? '#f59e0b' : 'var(--gray-200)', borderRadius: '4px 0 0 4px' }} />
+                            <div style={{ width: 40, height: 40, borderRadius: 10, background: 'linear-gradient(135deg, #059669, #10b981)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginLeft: '0.5rem' }}>
+                              <FileText size={18} color="#fff" />
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontWeight: 700, fontSize: '0.875rem', color: 'var(--gray-900)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.template_name}</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '0.15rem 0.4rem', borderRadius: 999, background: s.status === 'completed' ? 'rgba(16,185,129,0.1)' : s.status === 'in-progress' ? 'rgba(245,158,11,0.1)' : 'var(--gray-100)', color: s.status === 'completed' ? '#059669' : s.status === 'in-progress' ? '#b45309' : 'var(--gray-500)' }}>
+                                  {s.status === 'in-progress' ? 'In Progress' : s.status === 'completed' ? 'Completed' : 'Blank'}
+                                </span>
+                                <span style={{ fontSize: '0.7rem', color: 'var(--gray-400)' }}>
+                                  {s.updated_at ? new Date(s.updated_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—'}
+                                </span>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => setOpenForm({ ...s, type: 'discharge' })}
+                              style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', background: '#059669', color: '#fff', border: 'none', borderRadius: 8, padding: '0.4rem 0.75rem', fontSize: '0.75rem', fontWeight: 600, flexShrink: 0, cursor: 'pointer' }}
+                            >
+                              <Pen size={12} /> Open
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Available discharge templates */}
+                  {dischargeTpls.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.75rem' }}>
+                        Assign New Template
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+                        {dischargeTpls.map(tpl => {
+                          const count = dischargeSummaries.filter(s => s.template_id === tpl.id).length
+                          return (
+                            <div
+                              key={tpl.id}
+                              onClick={() => handleAssignDischarge(tpl)}
+                              style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', padding: '0.875rem 1rem', background: count > 0 ? 'var(--primary-50)' : 'var(--gray-50)', borderRadius: 'var(--radius-lg)', border: `1px dashed ${count > 0 ? 'var(--primary-200)' : 'var(--gray-200)'}`, cursor: assigningDischargeId === tpl.id ? 'wait' : 'pointer', opacity: assigningDischargeId === tpl.id ? 0.6 : 1, transition: 'all 150ms' }}
+                              onMouseEnter={e => { if (!assigningDischargeId) { e.currentTarget.style.background = 'rgba(16,185,129,0.05)'; e.currentTarget.style.borderColor = '#6ee7b7' } }}
+                              onMouseLeave={e => { e.currentTarget.style.background = count > 0 ? 'var(--primary-50)' : 'var(--gray-50)'; e.currentTarget.style.borderColor = count > 0 ? 'var(--primary-200)' : 'var(--gray-200)' }}
+                            >
+                              <div style={{ width: 36, height: 36, borderRadius: 8, background: count > 0 ? 'rgba(16,185,129,0.1)' : 'var(--gray-200)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                {assigningDischargeId === tpl.id ? <Loader size={14} className="spin" /> : <Plus size={14} color={count > 0 ? '#059669' : 'var(--gray-500)'} />}
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontWeight: 600, fontSize: '0.8125rem', color: 'var(--gray-700)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tpl.name}</div>
+                                <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '0.15rem 0.4rem', borderRadius: 999, textTransform: 'uppercase', background: 'var(--gray-100)', color: 'var(--gray-500)' }}>{tpl.type}</span>
+                                {count > 0 && <span style={{ marginLeft: '0.375rem', fontSize: '0.6rem', fontWeight: 700, padding: '0.15rem 0.4rem', borderRadius: 999, background: 'rgba(245,158,11,0.12)', color: '#b45309' }}>{count}×</span>}
+                              </div>
+                              <span style={{ fontSize: '0.75rem', color: '#059669', fontWeight: 600 }}>{count > 0 ? 'Add Copy' : 'Assign'}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {dischargeSummaries.length === 0 && dischargeTpls.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: '3rem 1rem' }}>
+                      <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'rgba(16,185,129,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
+                        <FileText size={26} color="#10b981" />
+                      </div>
+                      <div style={{ fontWeight: 600, color: 'var(--gray-600)', marginBottom: '0.375rem' }}>No discharge templates yet</div>
+                      <div style={{ fontSize: '0.8125rem', color: 'var(--gray-400)' }}>Ask an admin to upload PDF templates from the <strong>Discharge Templates</strong> page.</div>
                     </div>
                   )}
                 </>
