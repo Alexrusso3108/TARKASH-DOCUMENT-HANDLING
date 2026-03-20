@@ -170,6 +170,8 @@ async function initDB() {
       )`,
       `ALTER TABLE discharge_summary_templates ADD COLUMN IF NOT EXISTS file_name  TEXT`,
       `ALTER TABLE discharge_summary_templates ADD COLUMN IF NOT EXISTS file_size  INTEGER`,
+      `ALTER TABLE discharge_summary_templates ADD COLUMN IF NOT EXISTS file_path  TEXT`,
+
       `CREATE TABLE IF NOT EXISTS patient_discharge_summaries (
         id              SERIAL PRIMARY KEY,
         template_id     INTEGER REFERENCES discharge_summary_templates(id) ON DELETE CASCADE,
