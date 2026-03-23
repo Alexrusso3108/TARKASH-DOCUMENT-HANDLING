@@ -78,10 +78,10 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
         // User-typed annotations use 'top' (intuitive: click position = top of text).
         ctx.textBaseline = stroke._baselineY ? 'alphabetic' : 'top'
         // Support fraction-based coordinates (auto-fill annotations)
-        const cw = canvasRef.current.width
-        const ch = canvasRef.current.height
-        const px = stroke.xFrac != null ? stroke.xFrac * cw : stroke.x
-        const py = stroke.yFrac != null ? stroke.yFrac * ch : stroke.y
+        const vw = viewportSize.width
+        const vh = viewportSize.height
+        const px = stroke.xFrac != null ? stroke.xFrac * vw : stroke.x
+        const py = stroke.yFrac != null ? stroke.yFrac * vh : stroke.y
         const lines = String(stroke.content || '').split('\n')
         lines.forEach((line, i) => {
           ctx.fillText(line, px, py + (i * fontSize * 1.25))
@@ -186,8 +186,8 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
     const canvas = canvasRef.current
     const rect = canvas.getBoundingClientRect()
     const canvasPos = {
-      x: (e.clientX - rect.left) * (canvas.width / rect.width),
-      y: (e.clientY - rect.top) * (canvas.height / rect.height)
+      x: (e.clientX - rect.left) * (viewportSize.width / rect.width),
+      y: (e.clientY - rect.top) * (viewportSize.height / rect.height)
     }
     // Stylus: pressure-sensitive width + opacity. Mouse: full-opacity fixed width.
     const isStylus = e.pointerType === 'pen'
@@ -289,14 +289,14 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
       if (s.xFrac != null) return s // Already normalized (auto-fill)
       const res = { ...s, refScale: scale } // Store the screen-scale used when created
       if (s.type === 'text') {
-        res.xFrac = s.x / canvas.width
-        res.yFrac = s.y / canvas.height
+        res.xFrac = s.x / viewportSize.width
+        res.yFrac = s.y / viewportSize.height
       } else if (s.points) {
         // For freehand drawing, we normalize each point
         res.points = s.points.map(p => ({
           x: p.x, y: p.y,
-          xFrac: p.x / canvas.width,
-          yFrac: p.y / canvas.height
+          xFrac: p.x / viewportSize.width,
+          yFrac: p.y / viewportSize.height
         }))
       }
       return res
