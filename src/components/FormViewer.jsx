@@ -16,6 +16,8 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
   const [lineWidth, setLineWidth] = useState(2.5)
   const [strokes, setStrokes] = useState(initialAnnotations || [])
   const [currentStroke, setCurrentStroke] = useState(null)
+  const currentStrokeRef = useRef(null) // Sync ref — always current, never stale in event handlers
+  const activePointerType = useRef(null) // Track which pointer type is drawing (for palm rejection)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const isDrawing = useRef(false)
@@ -148,21 +150,20 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
   const onPointerDown = useCallback((e) => {
     const canvas = canvasRef.current
     if (!canvas) return
+
+    // Palm rejection: if a pen stroke is active, ignore touch (palm) events
+    if (activePointerType.current === 'pen' && e.pointerType === 'touch') {
+      e.preventDefault()
+      return
+    }
+
     const rect = canvas.getBoundingClientRect()
     // Map DOM coordinates back to fixed viewport units (independent of DPI)
     const canvasX = (e.clientX - rect.left) * (viewportSize.width / rect.width)
     const canvasY = (e.clientY - rect.top) * (viewportSize.height / rect.height)
 
-    if (tool === 'type') {
-      if (activeText && activeText.content.trim()) {
-        commitText()
-      }
-      setActiveText({ domX, domY, canvasX, canvasY, content: '' })
-      return
-    }
-
-    if (tool === 'hand' || (e.pointerType === 'touch' && tool !== 'type')) {
-      // Hand tool or touch (non-typing) allows for swiping/scrolling bubbling
+    if (tool === 'hand') {
+      // Hand tool allows for swiping/scrolling bubbling
       startPoint.current = { x: e.clientX, y: e.clientY, time: Date.now() }
       return
     }
@@ -170,6 +171,7 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
     e.preventDefault()
     canvas.setPointerCapture(e.pointerId)
     isDrawing.current = true
+    activePointerType.current = e.pointerType
     lastPoint.current = { x: canvasX, y: canvasY }
     startPoint.current = { x: e.clientX, y: e.clientY, time: Date.now() }
     
@@ -178,11 +180,16 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
     const pressure = isStylus && e.pressure > 0 ? e.pressure : 1
     const width    = tool === 'eraser' ? lineWidth * 6 : lineWidth * (isStylus ? (0.5 + pressure * 1.5) : 1)
     const opacity  = tool === 'eraser' ? 1 : (isStylus ? Math.max(0.4, pressure * 1.2) : 1)
-    setCurrentStroke({ tool, color, width, opacity, points: [{ x: canvasX, y: canvasY }] })
+    const newStroke = { tool, color, width, opacity, points: [{ x: canvasX, y: canvasY }] }
+    currentStrokeRef.current = newStroke  // Set ref synchronously — available immediately in move events
+    setCurrentStroke(newStroke)
   }, [tool, color, lineWidth, activeText, commitText])
 
   const onPointerMove = useCallback((e) => {
-    if (!isDrawing.current || !currentStroke) return
+    // Use ref (not state) — state is async and may not have updated yet for fast stylus moves
+    if (!isDrawing.current || !currentStrokeRef.current) return
+    // Palm rejection: ignore touch events while pen is drawing
+    if (activePointerType.current === 'pen' && e.pointerType === 'touch') return
     const canvas = canvasRef.current
     const rect = canvas.getBoundingClientRect()
     const canvasPos = {
@@ -214,10 +221,15 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
       ctx.restore()
     }
     lastPoint.current = canvasPos
-    setCurrentStroke(prev => ({ ...prev, points: [...prev.points, canvasPos] }))
-  }, [isDrawing, currentStroke, tool, color, lineWidth])
+    // Update the ref synchronously (for the next move event)
+    currentStrokeRef.current = { ...currentStrokeRef.current, points: [...currentStrokeRef.current.points, canvasPos] }
+    setCurrentStroke(prev => prev ? { ...prev, points: [...prev.points, canvasPos] } : prev)
+  }, [isDrawing, tool, color, lineWidth])
 
   const onPointerUp = useCallback((e) => {
+    // Palm rejection: only process pointer-up for the active drawing pointer type
+    if (activePointerType.current && e.pointerType !== activePointerType.current) return
+
     if (startPoint.current) {
       const dx = e.clientX - startPoint.current.x
       const dy = e.clientY - startPoint.current.y
@@ -228,22 +240,28 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
         else if (dx > 0 && onSwipeRight) onSwipeRight()
         // If we detected a swipe, clear any accidental tiny stroke
         isDrawing.current = false
+        currentStrokeRef.current = null
         setCurrentStroke(null)
+        activePointerType.current = null
         startPoint.current = null
         return
       }
     }
 
-    if (!isDrawing.current || !currentStroke) return
+    // Use ref (not state) — guarantees we always have the latest stroke data
+    const finishedStroke = currentStrokeRef.current
+    if (!isDrawing.current || !finishedStroke) return
     isDrawing.current = false
-    if (currentStroke.points.length > 1) {
-      setStrokes(prev => [...prev, currentStroke])
+    activePointerType.current = null
+    if (finishedStroke.points.length > 1) {
+      setStrokes(prev => [...prev, finishedStroke])
       setSaved(false)
     }
+    currentStrokeRef.current = null
     setCurrentStroke(null)
     lastPoint.current = null
     startPoint.current = null
-  }, [isDrawing, currentStroke, onSwipeLeft, onSwipeRight])
+  }, [isDrawing, onSwipeLeft, onSwipeRight])
 
   const handleUndo = () => {
     setStrokes(prev => {
