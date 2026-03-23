@@ -151,8 +151,8 @@ function PatientPanel({ patient, onClose }) {
       api.getPatientForms(patient.id),
       api.getFormTemplates(),
     ]).then(([f, t]) => {
-      setForms(f)
-      setTemplates(t)
+      setForms((f || []).map(form => ({ ...form, type: 'form' })))
+      setTemplates(t || [])
     }).catch(console.error).finally(() => setLoadingForms(false))
   }, [tab, patient.id])
 
@@ -163,8 +163,8 @@ function PatientPanel({ patient, onClose }) {
       api.getPatientDischargeSummaries(patient.id),
       api.getDischargeTemplates(),
     ]).then(([summaries, tpls]) => {
-      setDischargeSummaries(summaries)
-      setDischargeTpls(tpls)
+      setDischargeSummaries((summaries || []).map(s => ({ ...s, type: 'discharge' })))
+      setDischargeTpls(tpls || [])
     }).catch(console.error).finally(() => setLoadingDischarge(false))
   }, [tab, patient.id])
 
@@ -172,7 +172,7 @@ function PatientPanel({ patient, onClose }) {
     setAssigningId(template.id)
     try {
       const form = await api.createPatientForm({ template_id: template.id, patient_id: patient.id, filled_by: '' })
-      const enriched = { ...form, template_name: template.name, category: template.category, file_path: template.file_path, file_name: template.file_name }
+      const enriched = { ...form, template_name: template.name, category: template.category, file_path: template.file_path, file_name: template.file_name, type: 'form' }
       setForms(prev => [enriched, ...prev])
       setOpenForm(enriched)
     } catch (e) { alert('Failed: ' + e.message) } finally { setAssigningId(null) }
@@ -191,9 +191,9 @@ function PatientPanel({ patient, onClose }) {
   // Update the form card in the panel after annotations are saved
   const handleAnnotationsSaved = useCallback((updatedAnnotations, newStatus) => {
     if (!openForm) return
-    const updater = f => f.id === openForm.id ? { ...f, annotations: updatedAnnotations, status: newStatus || f.status } : f
-    setForms(prev => prev.map(updater))
-    setDischargeSummaries(prev => prev.map(updater))
+    const updater = f => f && f.id === openForm.id ? { ...f, annotations: updatedAnnotations, status: newStatus || f.status } : f
+    setForms(prev => (prev || []).map(updater))
+    setDischargeSummaries(prev => (prev || []).map(updater))
   }, [openForm])
 
   const infoRows = [
@@ -211,8 +211,14 @@ function PatientPanel({ patient, onClose }) {
       {openForm && (
         <FormViewer
           formInstance={{ ...openForm, patient_name: patient.name }}
+          patientData={patient}
           onClose={() => setOpenForm(null)}
           onAnnotationsSaved={handleAnnotationsSaved}
+          allForms={[
+            ...(forms || []).map(f => ({ ...f, type: 'form' })),
+            ...(dischargeSummaries || []).map(s => ({ ...s, type: 'discharge' }))
+          ].map(f => ({ ...f, patient_name: patient.name }))}
+          onSwitchForm={(f) => setOpenForm(f)}
         />
       )}
 

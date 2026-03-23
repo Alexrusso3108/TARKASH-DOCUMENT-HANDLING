@@ -4,14 +4,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Pen, Eraser, Undo2, Trash2, Save, CheckCircle, Loader,
-  ChevronLeft, ChevronRight, ZoomIn, ZoomOut, X, Lock, Maximize2, Type, Download,
+  ChevronLeft, ChevronRight, ZoomIn, ZoomOut, X, Lock, Maximize2, Type, Download, ClipboardList, Hand
 } from 'lucide-react'
 import { api, SERVER_URL } from '../api'
 import { useAuth } from '../context/AuthContext'
 
 // ─── Ink Canvas ──────────────────────────────────────────────────────────────
 // InkCanvas — canErase controls whether eraser/undo/clear tools are available
-function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, canErase, allowDrawing = true, scale = 1 }) {
+function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, viewportSize, onSave, canErase, allowDrawing = true, scale = 1, onSwipeLeft, onSwipeRight }) {
   const canvasRef = useRef(null)
   const [tool, setTool] = useState(allowDrawing ? 'pen' : 'type')
   const [color, setColor] = useState('#1a1a2e')
@@ -22,9 +22,18 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
   const [saved, setSaved] = useState(false)
   const isDrawing = useRef(false)
   const lastPoint = useRef(null)
+  const startPoint = useRef(null) // for swipe detection
   const ctxRef = useRef(null)
   const [activeText, setActiveText] = useState(null) // {x, y, content}
   const textInputRef = useRef(null)
+
+  // When parent injects auto-fill annotations, merge them into strokes
+  useEffect(() => {
+    if (externalAnnotations && externalAnnotations.length > 0) {
+      setStrokes(externalAnnotations)
+      setSaved(false)
+    }
+  }, [externalAnnotations])
 
   const commitText = useCallback(() => {
     if (!activeText || !activeText.content.trim()) {
@@ -65,12 +74,19 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
       if (stroke.type === 'text') {
         ctx.save()
         ctx.fillStyle = stroke.color || '#1a1a2e'
-        ctx.font = `${(stroke.lineWidth || 2.5) * 6}px "Inter", "Segoe UI", sans-serif`
-        ctx.textBaseline = 'top'
-        // Handle multiline text
-        const lines = (stroke.content || '').split('\n')
+        const fontSize = (stroke.lineWidth || 2.7) * 6
+        ctx.font = `bold ${fontSize}px "Inter", "Segoe UI", sans-serif`
+        // Auto-fill annotations use 'alphabetic' (matches PDF baseline from text layer).
+        // User-typed annotations use 'top' (intuitive: click position = top of text).
+        ctx.textBaseline = stroke._baselineY ? 'alphabetic' : 'top'
+        // Support fraction-based coordinates (auto-fill annotations)
+        const cw = canvasRef.current.width
+        const ch = canvasRef.current.height
+        const px = stroke.xFrac != null ? stroke.xFrac * cw : stroke.x
+        const py = stroke.yFrac != null ? stroke.yFrac * ch : stroke.y
+        const lines = String(stroke.content || '').split('\n')
         lines.forEach((line, i) => {
-          ctx.fillText(line, stroke.x, stroke.y + (i * (stroke.lineWidth || 2.5) * 7.5))
+          ctx.fillText(line, px, py + (i * fontSize * 1.25))
         })
         ctx.restore()
         continue
@@ -137,14 +153,24 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
       return
     }
 
-    if (e.pointerType === 'touch') return
+    if (tool === 'hand' || (e.pointerType === 'touch' && tool !== 'type')) {
+      // Hand tool or touch (non-typing) allows for swiping/scrolling bubbling
+      startPoint.current = { x: e.clientX, y: e.clientY, time: Date.now() }
+      return
+    }
+
     e.preventDefault()
     canvas.setPointerCapture(e.pointerId)
     isDrawing.current = true
     lastPoint.current = { x: canvasX, y: canvasY }
-    const pressure = e.pressure > 0 ? e.pressure : 0.5
-    const width = tool === 'eraser' ? lineWidth * 6 : lineWidth * (0.5 + pressure * 1.5)
-    setCurrentStroke({ tool, color, width, opacity: tool === 'eraser' ? 1 : Math.max(0.3, pressure * 1.2), points: [{ x: canvasX, y: canvasY }] })
+    startPoint.current = { x: e.clientX, y: e.clientY, time: Date.now() }
+    
+    // Stylus: use real pressure for width + opacity. Mouse: flat full-opacity stroke.
+    const isStylus = e.pointerType === 'pen'
+    const pressure = isStylus && e.pressure > 0 ? e.pressure : 1
+    const width    = tool === 'eraser' ? lineWidth * 6 : lineWidth * (isStylus ? (0.5 + pressure * 1.5) : 1)
+    const opacity  = tool === 'eraser' ? 1 : (isStylus ? Math.max(0.4, pressure * 1.2) : 1)
+    setCurrentStroke({ tool, color, width, opacity, points: [{ x: canvasX, y: canvasY }] })
   }, [tool, color, lineWidth, activeText, commitText])
 
   const onPointerMove = useCallback((e) => {
@@ -155,8 +181,11 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
       x: (e.clientX - rect.left) * (canvas.width / rect.width),
       y: (e.clientY - rect.top) * (canvas.height / rect.height)
     }
-    const pressure = e.pressure > 0 ? e.pressure : 0.5
-    const width = tool === 'eraser' ? lineWidth * 6 : lineWidth * (0.5 + pressure * 1.5)
+    // Stylus: pressure-sensitive width + opacity. Mouse: full-opacity fixed width.
+    const isStylus = e.pointerType === 'pen'
+    const pressure = isStylus && e.pressure > 0 ? e.pressure : 1
+    const width    = tool === 'eraser' ? lineWidth * 6 : lineWidth * (isStylus ? (0.5 + pressure * 1.5) : 1)
+    const alpha    = isStylus ? Math.max(0.4, pressure * 1.2) : 1
     const ctx = ctxRef.current
     if (ctx && lastPoint.current) {
       ctx.save()
@@ -167,7 +196,7 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
         ctx.globalCompositeOperation = 'source-over'
         ctx.strokeStyle = color
         ctx.lineWidth = width
-        ctx.globalAlpha = Math.max(0.3, pressure * 1.2)
+        ctx.globalAlpha = alpha
       }
       ctx.beginPath()
       const prev = lastPoint.current
@@ -180,7 +209,23 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
     setCurrentStroke(prev => ({ ...prev, points: [...prev.points, canvasPos] }))
   }, [isDrawing, currentStroke, tool, color, lineWidth])
 
-  const onPointerUp = useCallback(() => {
+  const onPointerUp = useCallback((e) => {
+    if (startPoint.current) {
+      const dx = e.clientX - startPoint.current.x
+      const dy = e.clientY - startPoint.current.y
+      const dt = Date.now() - startPoint.current.time
+      // Flick detection: fast, horizontal, significant
+      if (Math.abs(dx) > 100 && Math.abs(dy) < 80 && dt < 300) {
+        if (dx < 0 && onSwipeLeft) onSwipeLeft()
+        else if (dx > 0 && onSwipeRight) onSwipeRight()
+        // If we detected a swipe, clear any accidental tiny stroke
+        isDrawing.current = false
+        setCurrentStroke(null)
+        startPoint.current = null
+        return
+      }
+    }
+
     if (!isDrawing.current || !currentStroke) return
     isDrawing.current = false
     if (currentStroke.points.length > 1) {
@@ -189,7 +234,8 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
     }
     setCurrentStroke(null)
     lastPoint.current = null
-  }, [isDrawing, currentStroke])
+    startPoint.current = null
+  }, [isDrawing, currentStroke, onSwipeLeft, onSwipeRight])
 
   const handleUndo = () => {
     setStrokes(prev => {
@@ -210,6 +256,8 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
 
   const handleSave = async () => {
     let finalStrokes = [...strokes]
+    const canvas = canvasRef.current
+    if (!canvas) return
     
     // Commit any active text being typed before saving
     if (activeText && activeText.content.trim()) {
@@ -218,6 +266,8 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
         content: activeText.content,
         x: activeText.canvasX,
         y: activeText.canvasY,
+        xFrac: activeText.canvasX / canvas.width,
+        yFrac: activeText.canvasY / canvas.height,
         color: color,
         lineWidth: lineWidth,
       }
@@ -226,9 +276,27 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
       setActiveText(null)
     }
 
+    // Normalize all strokes to fractions to ensure correct positioning during download
+    const normalized = finalStrokes.map(s => {
+      if (s.xFrac != null) return s // Already normalized (auto-fill)
+      const res = { ...s, refScale: scale } // Store the screen-scale used when created
+      if (s.type === 'text') {
+        res.xFrac = s.x / canvas.width
+        res.yFrac = s.y / canvas.height
+      } else if (s.points) {
+        // For freehand drawing, we normalize each point
+        res.points = s.points.map(p => ({
+          x: p.x, y: p.y,
+          xFrac: p.x / canvas.width,
+          yFrac: p.y / canvas.height
+        }))
+      }
+      return res
+    })
+
     setSaving(true)
     try {
-      await onSave(finalStrokes, 'in-progress')
+      await onSave(normalized, 'in-progress')
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     } catch (e) { alert('Save failed: ' + e.message) } finally { setSaving(false) }
@@ -243,8 +311,10 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
       {/* Sticky toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.625rem 1rem', background: '#fff', borderBottom: '1px solid var(--gray-100)', flexWrap: 'wrap', flexShrink: 0 }}>
 
-        {/* Tool selector: pen always visible; eraser only for admin */}
         <div style={{ display: 'flex', background: 'var(--gray-100)', borderRadius: 8, padding: '0.25rem' }}>
+          <button onClick={() => setTool('hand')} title="Hand Tool (Slide/Scroll)" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 32, borderRadius: 6, border: 'none', cursor: 'pointer', background: tool === 'hand' ? '#fff' : 'transparent', color: tool === 'hand' ? 'var(--primary-600)' : 'var(--gray-500)', boxShadow: tool === 'hand' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none', transition: 'all 150ms' }}>
+            <Hand size={15} />
+          </button>
           {allowDrawing && (
             <button onClick={() => setTool('pen')} title="Pen Tool" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 32, borderRadius: 6, border: 'none', cursor: 'pointer', background: tool === 'pen' ? '#fff' : 'transparent', color: tool === 'pen' ? 'var(--primary-600)' : 'var(--gray-500)', boxShadow: tool === 'pen' ? '0 1px 3px rgba(0,0,0,0.12)' : 'none', transition: 'all 150ms' }}>
               <Pen size={15} />
@@ -405,27 +475,298 @@ function InkCanvas({ formId, initialAnnotations, pdfPage, viewportSize, onSave, 
   )
 }
 
-// ─── FormViewer ───────────────────────────────────────────────────────────────
-// Props:
-//   formInstance  — { id, template_name, file_path, patient_name?, patient_id?, annotations, filled_by }
-//   onClose       — () => void
-//   onAnnotationsSaved? — (annotations, status) => void   called after each successful save
-export default function FormViewer({ formInstance, onClose, onAnnotationsSaved }) {
+// ─── Smart PDF-aware Auto-fill ────────────────────────────────────────────────
+// Field label aliases: we search the PDF text layer for these strings and place
+// the patient value right after the found label, at the exact PDF coordinates.
+// This works on ANY uploaded template — no hardcoded positions needed.
+const FIELD_LABEL_MAP = [
+  // { key: data key, aliases: strings to search in PDF text layer, side: 'right'|'below' }
+  { key: 'patient_name',      aliases: ['patient name', 'name of patient', 'patient\'s name', 'name', 'pt name'], side: 'right' },
+  { key: 'age',               aliases: ['age', 'years', 'y/o', 'yrs'],                                          side: 'right' },
+  { key: 'gender',            aliases: ['gender', 'sex', 'm/f'],                                                side: 'right' },
+  { key: 'age_gender',        aliases: ['age / gender', 'age/gender', 'age & gender', 'age-gender', 'age / sex'], side: 'right' },
+  { key: 'reg_no',            aliases: ['reg no', 'reg. no', 'uhid', 'mrd no', 'mr no', 'cr no', 'patient id', 'registration no'], side: 'right' },
+  { key: 'date_of_admission', aliases: ['date of admission', 'admission date', 'd.o.a', 'doa', 'admitted on'],     side: 'right' },
+  { key: 'phone',             aliases: ['phone number', 'phone no', 'mobile no', 'contact no', 'mobile', 'phone', 'contact'], side: 'right' },
+  { key: 'consultant',        aliases: ['consultant', 'doctor', 'physician', 'attending doctor', 'dr.', 'surgeon'], side: 'right' },
+  { key: 'room_bed',          aliases: ['room / bed', 'room/bed', 'bed no', 'bed number', 'ward / bed', 'room', 'bed', 'ward'], side: 'right' },
+  { key: 'ip_no',             aliases: ['ip no', 'ip number', 'ipd no', 'inpatient no', 'admission no', 'ipn'],   side: 'right' },
+  { key: 'date_of_discharge', aliases: ['date of discharge', 'discharge date', 'd.o.d', 'dod', 'discharged on'],   side: 'right' },
+  { key: 'department',        aliases: ['department', 'dept', 'specialty', 'speciality', 'unit', 'ward name'],    side: 'right' },
+  { key: 'diagnosis',         aliases: ['diagnosis', 'final diagnosis', 'primary diagnosis', 'clinical diagnosis', 'provisional diagnosis', 'chief complaint'], side: 'right' },
+  { key: 'blood_group',       aliases: ['blood group', 'blood type', 'b/g', 'rh'],                              side: 'right' },
+  { key: 'address',           aliases: ['address', 'residence', 'residing at'],                                 side: 'right' },
+]
+
+// Build the patient value map from patientData
+function buildPatientValues(patientData) {
+  if (!patientData) return {}
+  const p = patientData
+  const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
+  return {
+    patient_name:      p.name || '',
+    age:               p.age  || '',
+    gender:            p.gender || '',
+    age_gender:        [p.age ? `${p.age} Y` : '', p.gender].filter(Boolean).join(' / '),
+    reg_no:            p.id || p.uhid || '',
+    date_of_admission: formatDate(p.admitted_at),
+    phone:            p.phone || '',
+    consultant:       p.doctor_name || '',
+    room_bed:         p.bed_id || p.room_bed || p.ward || '',
+    ip_no:            p.ip_no || p.id || '',
+    date_of_discharge: formatDate(p.discharged_at),
+    department:       p.department || '',
+    diagnosis:        p.diagnosis || p.notes || '',
+    blood_group:      p.blood_group || '',
+    address:          p.address || '',
+  }
+}
+
+/**
+ * Extracts text items with positions from a PDF page using PDF.js text layer.
+ * Returns array of { text, x, y, width, height } in PDF user-space units,
+ * where y=0 is the BOTTOM of the page (PDF coordinate system).
+ */
+async function extractTextItems(pdfPage) {
+  const textContent = await pdfPage.getTextContent()
+  const viewport = pdfPage.getViewport({ scale: 1 })
+  const pageHeight = viewport.height
+
+  return textContent.items.map(item => {
+    // item.transform = [scaleX, skewX, skewY, scaleY, translateX, translateY]
+    // translateX/Y are in PDF user space; Y is measured from BOTTOM in PDF, from TOP in canvas
+    const [, , , , tx, ty] = item.transform
+    const w = item.width
+    const h = item.height || Math.abs(item.transform[3]) // font size
+    return {
+      text:   item.str.trim(),
+      x:      tx,
+      y:      ty,           // bottom-left of text in PDF space (y=0 at bottom)
+      width:  w,
+      height: h,
+      // Pre-compute canvas-space fractions (y flipped: PDF bottom = canvas top)
+      xFrac: tx / viewport.width,
+      yFrac: (pageHeight - ty - h) / pageHeight,
+    }
+  }).filter(item => item.text.length > 0)
+}
+
+/**
+ * Smart auto-fill: reads the PDF text layer to find exact label positions,
+ * then places patient values right after each label. Works on any form template.
+ */
+async function buildSmartAutoAnnotations(pdfPage, patientData) {
+  if (!patientData || !pdfPage) return []
+
+  const values = buildPatientValues(patientData)
+  const textItems = await extractTextItems(pdfPage)
+  const viewport = pdfPage.getViewport({ scale: 1 })
+  const pageW = viewport.width
+  const pageH = viewport.height
+
+  const annotations = []
+  const usedKeys = new Set()
+
+  // Group text items by approximate Y row (within 4pt tolerance) to reconstruct
+  // multi-word labels that may be split across multiple text chunks
+  const rowTolerance = 4 // points
+  const rows = []
+  for (const item of textItems) {
+    const existingRow = rows.find(r => Math.abs(r.y - item.y) <= rowTolerance)
+    if (existingRow) {
+      existingRow.items.push(item)
+      // Extend row bounding box
+      existingRow.maxX = Math.max(existingRow.maxX, item.x + item.width)
+    } else {
+      rows.push({ y: item.y, items: [item], maxX: item.x + item.width })
+    }
+  }
+
+  // For each row, concatenate all text chunks into one searchable string
+  const rowTexts = rows.map(row => ({
+    ...row,
+    combined: row.items
+      .slice()
+      .sort((a, b) => a.x - b.x)
+      .map(i => i.text)
+      .join(' ')
+      .toLowerCase(),
+  }))
+
+  for (const fieldDef of FIELD_LABEL_MAP) {
+    if (usedKeys.has(fieldDef.key)) continue
+    const value = values[fieldDef.key]
+    if (!value) continue
+
+    // Try each alias, longest first for specificity
+    const aliases = [...fieldDef.aliases].sort((a, b) => b.length - a.length)
+    let matched = null
+
+    for (const alias of aliases) {
+      const aliasLower = alias.toLowerCase()
+      for (const row of rowTexts) {
+        // Check if this row contains the alias
+        if (row.combined.includes(aliasLower)) {
+          // Find the rightmost item in this row as the label's right edge
+          const sortedItems = [...row.items].sort((a, b) => a.x - b.x)
+          // Find the specific item that contains or ends the matched alias text
+          const labelItem = sortedItems.find(i =>
+            i.text.toLowerCase().includes(aliasLower.split(' ').pop())
+          ) || sortedItems[sortedItems.length - 1]
+
+          matched = { row, labelItem, alias }
+          break
+        }
+      }
+      if (matched) break
+    }
+
+    if (!matched) continue
+    usedKeys.add(fieldDef.key)
+
+    const { row, labelItem } = matched
+
+    // Place value to the RIGHT of the label, on the same baseline.
+    // row.y  = text BASELINE in PDF space (y=0 at bottom of page).
+    // We convert that baseline to a canvas-space fraction (y=0 at top of canvas)
+    // and store _baselineY=true so redrawAll uses textBaseline='alphabetic' —
+    // the same reference point as the PDF text, giving pixel-perfect alignment.
+    const valueX   = labelItem.x + labelItem.width + 8  // 8pt gap after label
+    const baseline = row.y                              // PDF baseline (from bottom)
+    const canvasY  = pageH - baseline                   // canvas Y of baseline (from top)
+    const xFrac    = valueX / pageW
+    const yFrac    = canvasY / pageH
+
+    // Skip if placement would go off the right edge of the page
+    if (xFrac >= 0.98) continue
+
+    annotations.push({
+      type:        'text',
+      content:     value,
+      xFrac,
+      yFrac,
+      x: 0, y: 0,
+      color:       '#1a1a2e',
+      lineWidth:   2.5,
+      page:        1,
+      _autofilled: true,
+      _baselineY:  true,        // tells redrawAll to use textBaseline='alphabetic'
+      _label:      matched.alias,
+    })
+  }
+
+  return annotations
+}
+
+// ─── Patient Info Sidebar ─────────────────────────────────────────────────────
+function PatientInfoSidebar({ patientData, onClose, onStampField }) {
+  const p = patientData
+  const fields = [
+    { label: 'Patient Name',      value: p.name || '' },
+    { label: 'Age / Gender',      value: [p.age ? `${p.age} yrs` : '', p.gender || ''].filter(Boolean).join(' / ') },
+    { label: 'Reg No / ID',       value: p.id || '' },
+    { label: 'Date of Admission', value: p.admitted_at ? new Date(p.admitted_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '' },
+    { label: 'Phone Number',      value: p.phone || '' },
+    { label: 'Consultant',        value: p.doctor_name ? `Dr. ${p.doctor_name}` : '' },
+    { label: 'Department',        value: p.department || '' },
+    { label: 'Blood Group',       value: p.blood_group || '' },
+    { label: 'Admission Type',    value: p.admission_type || '' },
+    { label: 'Status',            value: p.status || '' },
+  ].filter(f => f.value)
+
+  const [copied, setCopied] = useState(null)
+  const copyField = (val, idx) => {
+    navigator.clipboard.writeText(val).catch(() => {})
+    setCopied(idx)
+    setTimeout(() => setCopied(null), 1500)
+  }
+
+  return (
+    <div style={{
+      width: 280, background: '#1e293b', borderLeft: '1px solid rgba(255,255,255,0.1)',
+      display: 'flex', flexDirection: 'column', flexShrink: 0, overflowY: 'auto',
+    }}>
+      {/* Header */}
+      <div style={{ padding: '0.875rem 1rem', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ color: '#fff', fontWeight: 700, fontSize: '0.8rem', letterSpacing: '0.04em' }}>📋 PATIENT DETAILS</div>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: 0 }}>✕</button>
+      </div>
+      {/* Avatar + name */}
+      <div style={{ padding: '1rem', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <div style={{ width: 42, height: 42, borderRadius: '50%', background: 'linear-gradient(135deg, #6366f1, #0d9488)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: '#fff', fontSize: '1rem', flexShrink: 0 }}>
+          {(p.name || '?').split(' ').map(n => n[0]).join('').slice(0, 2)}
+        </div>
+        <div>
+          <div style={{ color: '#fff', fontWeight: 700, fontSize: '0.9rem' }}>{p.name}</div>
+          <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.72rem' }}>{p.id}</div>
+        </div>
+      </div>
+      {/* Fields */}
+      <div style={{ padding: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', flex: 1 }}>
+        {fields.map((f, i) => (
+          <div key={i} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: '0.6rem 0.75rem', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ fontSize: '0.62rem', color: 'rgba(255,255,255,0.35)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.2rem' }}>{f.label}</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+              <div style={{ fontSize: '0.8125rem', color: '#fff', fontWeight: 600 }}>{f.value}</div>
+              <div style={{ display: 'flex', gap: '0.25rem' }}>
+                <button
+                  onClick={() => copyField(f.value, i)}
+                  title="Copy to clipboard"
+                  style={{ background: copied === i ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.08)', border: 'none', borderRadius: 5, padding: '0.2rem 0.4rem', color: copied === i ? '#10b981' : 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: '0.65rem', fontWeight: 700, whiteSpace: 'nowrap' }}
+                >{copied === i ? '✓ Copied' : '📋'}</button>
+                <button
+                  onClick={() => onStampField(f.value)}
+                  title="Click where you want to place this text on the PDF"
+                  style={{ background: 'rgba(99,102,241,0.2)', border: 'none', borderRadius: 5, padding: '0.2rem 0.4rem', color: '#a5b4fc', cursor: 'pointer', fontSize: '0.65rem', fontWeight: 700 }}
+                >📌</button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ padding: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+        <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.3)', textAlign: 'center', lineHeight: 1.5 }}>
+          📋 Copy • 📌 Click to place on PDF
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function FormViewer({ formInstance, allForms = [], patientData, onClose, onAnnotationsSaved, onSwitchForm }) {
   const [pdfDoc, setPdfDoc] = useState(null)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [scale, setScale] = useState(1.0)
-  const [fitScale, setFitScale] = useState(1.0)   // computed fit-to-width scale
+  const [fitScale, setFitScale] = useState(1.0)
   const [loadingPdf, setLoadingPdf] = useState(true)
   const [pdfError, setPdfError] = useState(null)
   const containerRef = useRef(null)
-  // All annotations across all pages (with .page field)
-  const [annotations, setAnnotations] = useState(
-    Array.isArray(formInstance.annotations) ? formInstance.annotations : []
-  )
-  // Viewport size — set AFTER pdfPage.render() completes so InkCanvas
-  // can size itself and redraw saved strokes at the right moment
+  const [annotations, setAnnotations] = useState([])
   const [viewportSize, setViewportSize] = useState(null)
+  const [showInfoPanel, setShowInfoPanel] = useState(!!patientData && !allForms.length)
+  const [showFormsQueue, setShowFormsQueue] = useState(allForms.length > 1)
+  const [pendingStamp, setPendingStamp] = useState(null)
+  const inkCanvasRef = useRef(null)
+  const [transitioning, setTransitioning] = useState(false)
+  const swipeRef = useRef({ x: 0, y: 0, time: 0 })
+  const [autoFilled, setAutoFilled] = useState(false)
+  const autoFilledRef = useRef(false)
+
+  // Consider a form "blank" if it has no annotations OR only old auto-filled ones
+  const isBlankForm = annotations.length === 0 || annotations.every(a => a._autofilled)
+
+  // Sync state whenever formInstance.id changes
+  useEffect(() => {
+    if (!formInstance) return
+    setAnnotations(Array.isArray(formInstance.annotations) ? formInstance.annotations : [])
+    setPage(1)
+    setPdfDoc(null)
+    setLoadingPdf(true)
+    setViewportSize(null)
+    autoFilledRef.current = false
+    setAutoFilled(false)
+  }, [formInstance.id])
 
   // ── Read admin flag from auth context ────────────────────────────────────
   const { isAdmin } = useAuth()
@@ -498,9 +839,22 @@ export default function FormViewer({ formInstance, onClose, onAnnotationsSaved }
       pdfCanvas.height = viewport.height
 
       const renderTask = pdfPage.render({ canvasContext: pdfCanvas.getContext('2d'), viewport })
-      renderTask.promise.then(() => {
+      renderTask.promise.then(async () => {
         if (cancelled) return
         setViewportSize({ width: viewport.width, height: viewport.height })
+        // Smart auto-fill: read PDF text layer to find EXACT label positions
+        if (page === 1 && isBlankForm && patientData && !autoFilledRef.current) {
+          try {
+            const autoAnns = await buildSmartAutoAnnotations(pdfPage, patientData)
+            if (!cancelled && autoAnns.length > 0) {
+              autoFilledRef.current = true
+              setAutoFilled(true)
+              setAnnotations(autoAnns)
+            }
+          } catch (err) {
+            console.warn('[AutoFill] Smart auto-fill failed:', err)
+          }
+        }
       }).catch(() => { })
     })
     return () => { cancelled = true }
@@ -515,25 +869,58 @@ export default function FormViewer({ formInstance, onClose, onAnnotationsSaved }
 
     let updated;
     if (formInstance.type === 'discharge') {
-      // Use discharge summaries API
-      updated = await api.saveDischargeSummaryAnnotations(formInstance.id, {
-        annotations: merged,
-        status,
-        filled_by: formInstance.filled_by || ''
-      })
+      updated = await api.saveDischargeSummaryAnnotations(formInstance.id, { annotations: merged, status, filled_by: formInstance.filled_by || '' })
     } else {
-      // Use standard patient forms API
-      updated = await api.savePatientFormAnnotations(formInstance.id, {
-        annotations: merged,
-        status,
-        filled_by: formInstance.filled_by || '',
-      })
+      updated = await api.savePatientFormAnnotations(formInstance.id, { annotations: merged, status, filled_by: formInstance.filled_by || '' })
     }
 
     const saved = Array.isArray(updated.annotations) ? updated.annotations : merged
     setAnnotations(saved)
     if (onAnnotationsSaved) onAnnotationsSaved(saved, updated.status || status)
     return updated
+  }
+
+  // ── Navigation (Page & Form) ─────────────────────────────────────────────
+  const goToNext = useCallback(() => {
+    if (page < totalPages) {
+      setTransitioning(true)
+      setTimeout(() => { setPage(p => p + 1); setTransitioning(false) }, 200)
+    } else if (allForms.length > 1 && onSwitchForm) {
+      const idx = allForms.findIndex(f => f.id === formInstance.id)
+      if (idx !== -1 && idx < allForms.length - 1) {
+        setTransitioning(true)
+        setTimeout(() => { onSwitchForm(allForms[idx + 1]); setTransitioning(false) }, 200)
+      }
+    }
+  }, [page, totalPages, allForms, formInstance.id, onSwitchForm])
+
+  const goToPrev = useCallback(() => {
+    if (page > 1) {
+      setTransitioning(true)
+      setTimeout(() => { setPage(p => p - 1); setTransitioning(false) }, 200)
+    } else if (allForms.length > 1 && onSwitchForm) {
+      const idx = allForms.findIndex(f => f.id === formInstance.id)
+      if (idx > 0) {
+        setTransitioning(true)
+        setTimeout(() => { onSwitchForm(allForms[idx - 1]); setTransitioning(false) }, 200)
+      }
+    }
+  }, [page, allForms, formInstance.id, onSwitchForm])
+
+  // ── Swipe Detection ────────────────────────────────────────────────────────
+  const onPointerDown = (e) => {
+    // Only track swipe for touch/pen that isn't a long press
+    swipeRef.current = { x: e.clientX, y: e.clientY, time: Date.now() }
+  }
+  const onPointerUp = (e) => {
+    const dx = e.clientX - swipeRef.current.x
+    const dy = e.clientY - swipeRef.current.y
+    const dt = Date.now() - swipeRef.current.time
+    // Threshold: horizontal move > 140px, fast duration, mostly horizontal
+    if (Math.abs(dx) > 140 && Math.abs(dy) < 90 && dt < 400) {
+      if (dx < 0) goToNext()
+      else goToPrev()
+    }
   }
 
   // ── Download PDF with annotations baked in ───────────────────────────────
@@ -572,36 +959,53 @@ export default function FormViewer({ formInstance, onClose, onAnnotationsSaved }
         // Draw annotations for this page
         const pageAnns = annotations.filter(s => s.page === pageNum)
         for (const stroke of pageAnns) {
+          // DOWNLOAD_SCALE = 2. Screen-scale used when drawing = refScale (usually ~1.2)
+          // Ratio ensures a 2px stroke on screen looks like a 2px equivalent on the Hi-Res PDF.
+          const refScale = stroke.refScale || (stroke.xFrac != null ? 1 : 1.2 /* fallback */)
+          const scaleRatio = DOWNLOAD_SCALE / refScale
+
           if (stroke.type === 'text') {
             ctx.save()
             ctx.fillStyle = stroke.color || '#1a1a2e'
-            const fontSize = (stroke.lineWidth || 2.5) * 6
-            ctx.font = `${fontSize}px "Segoe UI", "Inter", sans-serif`
-            ctx.textBaseline = 'top'
-            const lines = (stroke.content || '').split('\n')
+            // Scaled font size relative to high-res download
+            const baseFontSize = (stroke.lineWidth || 2.7) * 6
+            const fontSize = baseFontSize * scaleRatio
+            ctx.font = `bold ${fontSize}px "Inter", "Segoe UI", sans-serif`
+            ctx.textBaseline = stroke._baselineY ? 'alphabetic' : 'top'
+            
+            // Positioning via fractions (newly saved) or original px (fallback)
+            const px = stroke.xFrac != null ? stroke.xFrac * offCanvas.width : stroke.x * scaleRatio
+            const py = stroke.yFrac != null ? stroke.yFrac * offCanvas.height : stroke.y * scaleRatio
+            
+            const lines = String(stroke.content || '').split('\n')
             lines.forEach((line, i) => {
-              ctx.fillText(line, stroke.x, stroke.y + i * fontSize * 1.25)
+              ctx.fillText(line, px, py + i * fontSize * 1.25)
             })
             ctx.restore()
           } else if (stroke.points && stroke.points.length > 1) {
             ctx.save()
+            const strokeWidth = (stroke.width || 2.5) * scaleRatio
             if (stroke.tool === 'eraser') {
               ctx.globalCompositeOperation = 'destination-out'
-              ctx.lineWidth = stroke.width * 4
+              ctx.lineWidth = strokeWidth * 4
             } else {
               ctx.globalCompositeOperation = 'source-over'
               ctx.strokeStyle = stroke.color || '#1a1a2e'
-              ctx.lineWidth = stroke.width || 2.5
+              ctx.lineWidth = strokeWidth
               ctx.globalAlpha = stroke.opacity || 1
             }
             ctx.lineCap = 'round'
             ctx.lineJoin = 'round'
             ctx.beginPath()
-            ctx.moveTo(stroke.points[0].x, stroke.points[0].y)
+            
+            const getX = (p) => p.xFrac != null ? p.xFrac * offCanvas.width : p.x * scaleRatio
+            const getY = (p) => p.yFrac != null ? p.yFrac * offCanvas.height : p.y * scaleRatio
+            
+            ctx.moveTo(getX(stroke.points[0]), getY(stroke.points[0]))
             for (let i = 1; i < stroke.points.length; i++) {
               const prev = stroke.points[i - 1]
               const curr = stroke.points[i]
-              ctx.quadraticCurveTo(prev.x, prev.y, (prev.x + curr.x) / 2, (prev.y + curr.y) / 2)
+              ctx.quadraticCurveTo(getX(prev), getY(prev), (getX(prev) + getX(curr)) / 2, (getY(prev) + getY(curr)) / 2)
             }
             ctx.stroke()
             ctx.restore()
@@ -638,6 +1042,16 @@ export default function FormViewer({ formInstance, onClose, onAnnotationsSaved }
 
   const pageAnnotations = annotations.filter(s => s.page === page)
 
+  // Build info strip from patientData
+  const infoStrip = patientData ? [
+    patientData.name,
+    patientData.age ? `${patientData.age}Y/${patientData.gender?.[0] || ''}` : null,
+    patientData.id,
+    patientData.doctor_name ? `Dr. ${patientData.doctor_name}` : null,
+    patientData.department,
+    patientData.phone,
+  ].filter(Boolean).join('  ·  ') : null
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#0f172a', zIndex: 300, display: 'flex', flexDirection: 'column' }}>
       {/* Top bar */}
@@ -645,6 +1059,21 @@ export default function FormViewer({ formInstance, onClose, onAnnotationsSaved }
         <button onClick={onClose} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 8, padding: '0.4rem 0.8rem', color: 'rgba(255,255,255,0.85)', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 600 }}>
           <ChevronLeft size={16} /> Back
         </button>
+
+        {allForms.length > 1 && (
+          <button
+            onClick={() => setShowFormsQueue(v => !v)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '0.4rem',
+              background: showFormsQueue ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.08)',
+              border: 'none', borderRadius: 8, padding: '0.4rem 0.75rem',
+              color: showFormsQueue ? '#a5b4fc' : 'rgba(255,255,255,0.7)',
+              cursor: 'pointer', fontSize: '0.825rem', fontWeight: 600,
+            }}
+          >
+            <ClipboardList size={15} /> All Forms ({allForms.length})
+          </button>
+        )}
         <div style={{ flex: 1 }}>
           <div style={{ color: '#fff', fontWeight: 700, fontSize: '0.9375rem' }}>{formInstance.template_name}</div>
           {(formInstance.patient_name || formInstance.patient_id) && (
@@ -703,26 +1132,143 @@ export default function FormViewer({ formInstance, onClose, onAnnotationsSaved }
         </button>
       </div>
 
-      {/* Content — fills all remaining height; InkCanvas handles its own scroll */}
-      <div ref={containerRef} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#1e293b' }}>
-        {loadingPdf ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: 'rgba(255,255,255,0.4)' }}>
-            <Loader size={28} className="spin" style={{ display: 'inline-block' }} />
-            <span style={{ marginLeft: '0.75rem' }}>Loading PDF...</span>
+      {/* Patient info strip — shown below toolbar when patient data available */}
+      {infoStrip && (
+        <div style={{ background: 'linear-gradient(90deg, rgba(99,102,241,0.15), rgba(13,148,136,0.12))', borderBottom: '1px solid rgba(99,102,241,0.2)', padding: '0.5rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
+          <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#a5b4fc', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>Patient Info</span>
+          <span style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.75)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{infoStrip}</span>
+          <button
+            onClick={() => setShowInfoPanel(v => !v)}
+            style={{ marginLeft: 'auto', background: showInfoPanel ? 'rgba(99,102,241,0.3)' : 'rgba(255,255,255,0.08)', border: 'none', borderRadius: 6, padding: '0.25rem 0.6rem', color: '#a5b4fc', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}
+          >
+            {showInfoPanel ? '✕ Hide' : '📋 Details'}
+          </button>
+        </div>
+      )}
+
+      {/* Main content area: PDF + optional sidebars */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+        {/* Left Sidebar: Forms Queue */}
+        {showFormsQueue && allForms.length > 1 && (
+          <div style={{
+            width: 280, background: '#111827', borderRight: '1px solid rgba(255,255,255,0.06)',
+            display: 'flex', flexDirection: 'column', flexShrink: 0,
+            animation: 'slideInRight 250ms ease reverse'
+          }}>
+            <div style={{ padding: '1rem', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ color: '#fff', fontSize: '0.78rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assigned Forms</span>
+              <button onClick={() => setShowFormsQueue(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer' }}><ChevronLeft size={16} /></button>
+            </div>
+            <div style={{ flex: 1, overflow: 'auto', padding: '0.75rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {allForms.map((f, i) => {
+                  const isActive = f.id === formInstance.id
+                  return (
+                    <div
+                      key={f.id}
+                      onClick={() => onSwitchForm && onSwitchForm(f)}
+                      style={{
+                        padding: '0.875rem', borderRadius: 10, cursor: 'pointer',
+                        background: isActive ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.03)',
+                        border: `1.5px solid ${isActive ? 'rgba(99,102,241,0.4)' : 'transparent'}`,
+                        transition: 'all 150ms'
+                      }}
+                      onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.06)' }}
+                      onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'rgba(255,255,255,0.03)' }}
+                    >
+                      <div style={{ fontSize: '0.8rem', fontWeight: isActive ? 700 : 600, color: isActive ? '#fff' : 'rgba(255,255,255,0.6)', marginBottom: '0.25rem' }}>
+                        {i + 1}. {f.template_name}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <span style={{ fontSize: '0.62rem', fontWeight: 700, padding: '0.1rem 0.375rem', borderRadius: 4, background: f.status === 'completed' ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)', color: f.status === 'completed' ? '#10b981' : '#f59e0b', textTransform: 'uppercase' }}>
+                          {f.status || 'blank'}
+                        </span>
+                        <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.3)' }}>
+                          {f.updated_at ? new Date(f.updated_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : ''}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
           </div>
-        ) : pdfError ? (
-          <div style={{ textAlign: 'center', padding: '4rem', color: '#f87171', flex: 1 }}>{pdfError}</div>
-        ) : (
-          <InkCanvas
-            key={`${formInstance.id}-p${page}`}
-            formId={formInstance.id}
-            initialAnnotations={pageAnnotations}
-            pdfPage={page}
-            viewportSize={viewportSize}
-            onSave={handleSave}
-            canErase={canErase}
-            allowDrawing={true}
-            scale={scale}
+        )}
+
+        {/* PDF + Ink canvas area */}
+        <div 
+          ref={containerRef} 
+          onPointerDown={onPointerDown}
+          onPointerUp={onPointerUp}
+          onWheel={(e) => {
+            // Trackpad horizontal horizontal swipe detection
+            if (Math.abs(e.deltaX) > 40 && !transitioning) {
+              if (e.deltaX > 0) goToNext()
+              else goToPrev()
+            }
+          }}
+          style={{ 
+            flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', 
+            overflowX: 'hidden', overflowY: 'auto', background: '#1e293b', position: 'relative',
+            opacity: transitioning ? 0.3 : 1,
+            transform: transitioning ? 'scale(0.98)' : 'scale(1)',
+            transition: 'opacity 200ms, transform 200ms'
+          }}
+        >
+          {loadingPdf ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1, color: 'rgba(255,255,255,0.4)' }}>
+              <Loader size={28} className="spin" style={{ display: 'inline-block' }} />
+              <span style={{ marginLeft: '0.75rem' }}>Loading PDF...</span>
+            </div>
+          ) : pdfError ? (
+            <div style={{ textAlign: 'center', padding: '4rem', color: '#f87171', flex: 1 }}>{pdfError}</div>
+          ) : (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: 'fit-content' }}>
+              <InkCanvas
+                key={`${formInstance.id}-p${page}`}
+                formId={formInstance.id}
+                initialAnnotations={pageAnnotations}
+                pdfPage={page}
+                viewportSize={viewportSize}
+                onSave={handleSave}
+                canErase={canErase}
+                allowDrawing={true}
+                scale={scale}
+                onSwipeLeft={goToNext}
+                onSwipeRight={goToPrev}
+                externalAnnotations={autoFilled && page === 1 ? annotations.filter(s => s.page === 1) : undefined}
+              />
+              
+              {/* Pagination UI Arrows (Clickable on Laptop) */}
+              <button 
+                onClick={goToPrev}
+                title="Previous Form/Page"
+                style={{ position: 'sticky', top: '50%', left: 0, transform: 'translateY(-50%)', width: 44, height: 100, background: 'linear-gradient(90deg, rgba(0,0,0,0.3), transparent)', border: 'none', borderRadius: '0 12px 12px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', cursor: 'pointer', zIndex: 10, transition: 'all 150ms' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'linear-gradient(90deg, rgba(99,102,241,0.4), transparent)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'linear-gradient(90deg, rgba(0,0,0,0.3), transparent)'}
+              ><ChevronLeft size={28} /></button>
+              
+              <button 
+                onClick={goToNext}
+                title="Next Form/Page"
+                style={{ position: 'sticky', top: '50%', left: 'calc(100% - 44px)', transform: 'translateY(-50%)', width: 44, height: 100, background: 'linear-gradient(-90deg, rgba(0,0,0,0.3), transparent)', border: 'none', borderRadius: '12px 0 0 12px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', cursor: 'pointer', zIndex: 10, transition: 'all 150ms' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'linear-gradient(-90deg, rgba(99,102,241,0.4), transparent)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'linear-gradient(-90deg, rgba(0,0,0,0.3), transparent)'}
+              ><ChevronRight size={28} /></button>
+            </div>
+          )}
+        </div>
+
+        {/* Patient Info Sidebar */}
+        {showInfoPanel && patientData && (
+          <PatientInfoSidebar
+            patientData={patientData}
+            onClose={() => setShowInfoPanel(false)}
+            onStampField={(val) => {
+              // Switch to type tool and pre-set the text — user then clicks on PDF to place
+              setPendingStamp(val)
+              alert(`Now click on the PDF where you want to place: "${val}"`)
+            }}
           />
         )}
       </div>

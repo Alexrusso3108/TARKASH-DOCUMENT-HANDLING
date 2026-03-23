@@ -339,15 +339,19 @@ export default function IPD() {
   const [formTemplates, setFormTemplates] = useState([])
   const [loadingForms, setLoadingForms] = useState(false)
   const [assigningFormId, setAssigningFormId] = useState(null)
-  const [openForm, setOpenForm] = useState(null)
 
   // Discharge summary state
   const [dischargeTpls, setDischargeTpls]               = useState([])
   const [loadingDischargeTpls, setLoadingDischargeTpls] = useState(false)
   const [patientDischargeSummaries, setPatientDischargeSummaries] = useState([])
   const [loadingDischargeSummaries, setLoadingDischargeSummaries] = useState(false)
-  const [openDischargeForm, setOpenDischargeForm]       = useState(null)  // {id, template_name, file_path, patient_name}
   const [assigningDischargeId, setAssigningDischargeId] = useState(null)
+
+  // Unified active form/discharge state
+  const [activeForm, setActiveForm] = useState(null)  // {id, template_name, file_path, patient_name, type}
+
+  // Full patient record fetched when a bed is selected (has gender, phone, etc.)
+  const [selectedPatient, setSelectedPatient] = useState(null)
 
   const fetchBeds = useCallback(() => {
     setLoading(true); setError(null)
@@ -362,12 +366,19 @@ export default function IPD() {
     return () => clearTimeout(t)
   }, [fetchBeds])
 
-  // When an occupied bed is clicked, reset to info tab and clear old form data
+  // When an occupied bed is clicked, reset to info tab, clear old data, fetch full patient
   const handleSelectBed = (bed) => {
     setSelected(bed)
+    setSelectedPatient(null)        // clear stale data immediately
     setPanelTab('info')
-    setPatientForms([]); setFormTemplates([]); setOpenForm(null)
-    setDischargeTpls([]); setOpenDischargeForm(null); setPatientDischargeSummaries([])
+    setPatientForms([]); setFormTemplates([]); setActiveForm(null)
+    setDischargeTpls([]); setPatientDischargeSummaries([])
+    // Fetch the full patient record in the background (has gender, phone, etc.)
+    if (bed.patient_id) {
+      api.getPatient(bed.patient_id)
+        .then(setSelectedPatient)
+        .catch(() => {}) // silently ignore — bed fields still used as fallback
+    }
   }
 
   // Load patient forms + templates when switching to Forms tab
@@ -378,8 +389,8 @@ export default function IPD() {
         api.getPatientForms(patientId),
         api.getFormTemplates(),
       ])
-      setPatientForms(forms)
-      setFormTemplates(templates)
+      setPatientForms((forms || []).map(f => ({ ...f, type: 'form' })))
+      setFormTemplates(templates || [])
     } catch (e) { console.error(e) }
     finally { setLoadingForms(false) }
   }, [])
@@ -392,14 +403,14 @@ export default function IPD() {
       if (!dischargeTpls.length) {
         setLoadingDischargeTpls(true)
         api.getDischargeTemplates()
-          .then(setDischargeTpls)
+          .then(tpls => setDischargeTpls(tpls || []))
           .catch(() => {})
           .finally(() => setLoadingDischargeTpls(false))
       }
       // Load patient summaries
       setLoadingDischargeSummaries(true)
       api.getPatientDischargeSummaries(selected.patient_id)
-        .then(setPatientDischargeSummaries)
+        .then(res => setPatientDischargeSummaries((res || []).map(s => ({ ...s, type: 'discharge' }))))
         .catch(() => {})
         .finally(() => setLoadingDischargeSummaries(false))
     }
@@ -413,35 +424,36 @@ export default function IPD() {
       const summary = await api.createDischargeSummary({ template_id: tpl.id, patient_id: selected.patient_id, filled_by: '' })
       const enriched = { ...summary, template_name: tpl.name, category: tpl.type, file_path: tpl.file_path, file_name: tpl.file_name, type: 'discharge' }
       setPatientDischargeSummaries(prev => [enriched, ...prev])
-      setOpenDischargeForm(enriched)
+      setActiveForm(enriched)
     } catch (e) { alert('Failed to assign template: ' + e.message) }
     finally { setAssigningDischargeId(null) }
   }
 
   const handleDischargeSummarySaved = useCallback((updatedAnnotations, newStatus) => {
-    if (!openDischargeForm) return
+    if (!activeForm || activeForm.type !== 'discharge') return
     setPatientDischargeSummaries(prev => prev.map(s =>
-      s.id === openDischargeForm.id ? { ...s, annotations: updatedAnnotations, status: newStatus || s.status } : s
+      s.id === activeForm.id ? { ...s, annotations: updatedAnnotations, status: newStatus || s.status } : s
     ))
-  }, [openDischargeForm])
+  }, [activeForm])
 
   const handleAssignForm = async (template) => {
     if (!selected?.patient_id) return
     setAssigningFormId(template.id)
     try {
       const form = await api.createPatientForm({ template_id: template.id, patient_id: selected.patient_id, filled_by: '' })
-      const enriched = { ...form, template_name: template.name, category: template.category, file_path: template.file_path, file_name: template.file_name }
+      const enriched = { ...form, template_name: template.name, category: template.category, file_path: template.file_path, file_name: template.file_name, type: 'form' }
       setPatientForms(prev => [enriched, ...prev])
+      setActiveForm(enriched)
     } catch (e) { alert('Failed to assign form: ' + e.message) }
     finally { setAssigningFormId(null) }
   }
 
   const handleAnnotationsSaved = useCallback((updatedAnnotations, newStatus) => {
-    if (!openForm) return
+    if (!activeForm || activeForm.type === 'discharge') return
     setPatientForms(prev => prev.map(f =>
-      f.id === openForm.id ? { ...f, annotations: updatedAnnotations, status: newStatus || f.status } : f
+      f.id === activeForm.id ? { ...f, annotations: updatedAnnotations, status: newStatus || f.status } : f
     ))
-  }, [openForm])
+  }, [activeForm])
 
   const handleAssigned = (enrichedBed) => {
     setBeds(prev => prev.map(b => b.id === enrichedBed.id ? enrichedBed : b))
@@ -626,21 +638,29 @@ export default function IPD() {
         </div>
       )}
 
-      {/* Full-screen FormViewer — patient forms */}
-      {openForm && (
+      {/* Full-screen FormViewer — patient forms & discharge summaries unified */}
+      {activeForm && selected && (
         <FormViewer
-          formInstance={{ ...openForm, patient_name: selected?.patient_name }}
-          onClose={() => setOpenForm(null)}
-          onAnnotationsSaved={handleAnnotationsSaved}
-        />
-      )}
-
-      {/* Full-screen FormViewer — discharge summary */}
-      {openDischargeForm && (
-        <FormViewer
-          formInstance={{ ...openDischargeForm, patient_name: selected?.patient_name, type: 'discharge' }}
-          onClose={() => setOpenDischargeForm(null)}
-          onAnnotationsSaved={handleDischargeSummarySaved}
+          formInstance={{ ...activeForm, patient_name: selected.patient_name, type: activeForm.type || 'form' }}
+          patientData={{
+            ...(selectedPatient || {}),
+            name:        selectedPatient?.name        || selected.patient_name,
+            id:          selectedPatient?.id          || selected.patient_id,
+            age:         selectedPatient?.age         || selected.age,
+            gender:      selectedPatient?.gender      || selected.gender || '',
+            phone:       selectedPatient?.phone       || selected.phone  || '',
+            department:  selectedPatient?.department  || selected.ward   || '',
+            doctor_name: selected.doctor_name         || selectedPatient?.doctor_name || '',
+            admitted_at: selectedPatient?.admitted_at || selected.admitted_at,
+            bed_id:      selected.id,
+          }}
+          onClose={() => setActiveForm(null)}
+          onAnnotationsSaved={activeForm.type === 'discharge' ? handleDischargeSummarySaved : handleAnnotationsSaved}
+          allForms={[
+            ...(patientForms || []).map(f => ({ ...f, type: 'form', patient_name: selected.patient_name })),
+            ...(patientDischargeSummaries || []).map(s => ({ ...s, type: 'discharge', patient_name: selected.patient_name }))
+          ]}
+          onSwitchForm={(f) => setActiveForm(f)}
         />
       )}
 
@@ -786,7 +806,7 @@ export default function IPD() {
                                   </div>
                                 </div>
                                 <button
-                                  onClick={() => setOpenForm(form)}
+                                  onClick={() => setActiveForm(form)}
                                   style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', background: 'var(--primary-600)', color: '#fff', border: 'none', borderRadius: 7, padding: '0.35rem 0.65rem', fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}
                                 >
                                   <Pen size={11} /> Open
@@ -894,7 +914,7 @@ export default function IPD() {
                                   </div>
                                 </div>
                                 <button
-                                  onClick={() => setOpenDischargeForm({ ...s, type: 'discharge' })}
+                                  onClick={() => setActiveForm({ ...s, type: 'discharge' })}
                                   style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', background: '#059669', color: '#fff', border: 'none', borderRadius: 7, padding: '0.45rem 0.75rem', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}
                                 >
                                   <Pen size={12} /> Fill / View

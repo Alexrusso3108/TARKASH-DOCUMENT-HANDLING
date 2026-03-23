@@ -171,6 +171,7 @@ export default function PatientForms() {
       {openForm && (
         <FormViewer
           formInstance={{ ...openForm, patient_name: selectedPatient?.name }}
+          patientData={selectedPatient}
           onClose={() => setOpenForm(null)}
           onAnnotationsSaved={handleAnnotationsSaved}
         />
