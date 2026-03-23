@@ -1,7 +1,5 @@
-// src/components/FormViewer.jsx
-// Shared annotatable PDF viewer used by Patients panel and PatientForms page
-
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Pen, Eraser, Undo2, Trash2, Save, CheckCircle, Loader,
   ChevronLeft, ChevronRight, ZoomIn, ZoomOut, X, Lock, Maximize2, Type, Download, ClipboardList, Hand
@@ -119,20 +117,31 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
     }
   }, [])
 
+  const dpr = useRef(window.devicePixelRatio || 1)
+
   // ── KEY FIX: size the canvas and redraw ONLY after PDF has rendered
   //    (viewportSize comes from FormViewer after pdfPage.render() completes)
   useEffect(() => {
     if (!viewportSize || !canvasRef.current) return
     const canvas = canvasRef.current
-    canvas.width = viewportSize.width
-    canvas.height = viewportSize.height
+    const ratio = window.devicePixelRatio || 1
+    dpr.current = ratio
+
+    // High DPI fix: Scale hardware pixels, but keep CSS size identical to viewport
+    canvas.width = Math.floor(viewportSize.width * ratio)
+    canvas.height = Math.floor(viewportSize.height * ratio)
+    canvas.style.width = `${viewportSize.width}px`
+    canvas.style.height = `${viewportSize.height}px`
+
     const ctx = canvas.getContext('2d')
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0) // Key for high-DPI sharpness
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
     ctxRef.current = ctx
-    // Redraw saved strokes now that canvas has correct dimensions
+    
+    // Redraw saved strokes now that canvas has corrected DPI
     redrawAll(ctx, strokes)
-  }, [viewportSize, strokes, redrawAll]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [viewportSize, strokes, redrawAll])
   // (strokes intentionally omitted — we only redraw on viewport change,
   //  live drawing is handled incrementally in pointer events)
 
@@ -140,10 +149,9 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
     const canvas = canvasRef.current
     if (!canvas) return
     const rect = canvas.getBoundingClientRect()
-    const domX = e.clientX - rect.left
-    const domY = e.clientY - rect.top
-    const canvasX = domX * (canvas.width / rect.width)
-    const canvasY = domY * (canvas.height / rect.height)
+    // Map DOM coordinates back to fixed viewport units (independent of DPI)
+    const canvasX = (e.clientX - rect.left) * (viewportSize.width / rect.width)
+    const canvasY = (e.clientY - rect.top) * (viewportSize.height / rect.height)
 
     if (tool === 'type') {
       if (activeText && activeText.content.trim()) {
@@ -748,6 +756,7 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
   const [showFormsQueue, setShowFormsQueue] = useState(allForms.length > 1)
   const [pendingStamp, setPendingStamp] = useState(null)
   const inkCanvasRef = useRef(null)
+  const fullScreenRef = useRef(null)
   const [transitioning, setTransitioning] = useState(false)
   const swipeRef = useRef({ x: 0, y: 0, time: 0 })
   const [autoFilled, setAutoFilled] = useState(false)
@@ -1040,6 +1049,17 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
     }
   }
 
+  const toggleFullscreen = () => {
+    if (!fullScreenRef.current) return
+    if (!document.fullscreenElement) {
+      fullScreenRef.current.requestFullscreen().catch(err => {
+        alert(`Error attempting to enable full-screen: ${err.message}`)
+      })
+    } else {
+      document.exitFullscreen()
+    }
+  }
+
   const pageAnnotations = annotations.filter(s => s.page === page)
 
   // Build info strip from patientData
@@ -1052,8 +1072,8 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
     patientData.phone,
   ].filter(Boolean).join('  ·  ') : null
 
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: '#0f172a', zIndex: 300, display: 'flex', flexDirection: 'column' }}>
+  return createPortal(
+    <div ref={fullScreenRef} style={{ position: 'fixed', inset: 0, background: '#0f172a', zIndex: 10000, display: 'flex', flexDirection: 'column' }}>
       {/* Top bar */}
       <div style={{ display: 'flex', alignItems: 'center', padding: '0.75rem 1.25rem', background: '#1e293b', borderBottom: '1px solid rgba(255,255,255,0.08)', gap: '1rem', flexShrink: 0 }}>
         <button onClick={onClose} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 8, padding: '0.4rem 0.8rem', color: 'rgba(255,255,255,0.85)', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 600 }}>
@@ -1108,6 +1128,10 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
           <button onClick={() => setScale(fitScale)} title="Fit to width"
             style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 7, width: 32, height: 32, cursor: 'pointer', color: 'rgba(255,255,255,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: 2 }}>
             <Maximize2 size={13} />
+          </button>
+          <button onClick={toggleFullscreen} title="App Fullscreen"
+            style={{ background: 'rgba(99,102,241,0.2)', border: 'none', borderRadius: 7, width: 32, height: 32, cursor: 'pointer', color: '#a5b4fc', display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: 2 }}>
+            <Maximize2 size={14} />
           </button>
         </div>
         <button onClick={onClose} style={{ background: 'rgba(239,68,68,0.15)', border: 'none', borderRadius: 8, width: 36, height: 36, cursor: 'pointer', color: '#f87171', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
