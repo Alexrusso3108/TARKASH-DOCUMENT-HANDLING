@@ -1296,6 +1296,7 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
           />
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
