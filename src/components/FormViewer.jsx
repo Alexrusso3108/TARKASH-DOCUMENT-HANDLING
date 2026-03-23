@@ -80,8 +80,8 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
         // User-typed annotations use 'top' (intuitive: click position = top of text).
         ctx.textBaseline = stroke._baselineY ? 'alphabetic' : 'top'
         // Support fraction-based coordinates (auto-fill annotations)
-        const vw = viewportSize.width
-        const vh = viewportSize.height
+    const vw = viewportSize?.width || 1
+        const vh = viewportSize?.height || 1
         const px = stroke.xFrac != null ? stroke.xFrac * vw : stroke.x
         const py = stroke.yFrac != null ? stroke.yFrac * vh : stroke.y
         const lines = String(stroke.content || '').split('\n')
@@ -117,7 +117,7 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
       ctx.stroke()
       ctx.restore()
     }
-  }, [])
+  }, [viewportSize])
 
   const dpr = useRef(window.devicePixelRatio || 1)
 
@@ -158,6 +158,9 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
     }
 
     const rect = canvas.getBoundingClientRect()
+    // Guard: ensure viewportSize is ready
+    if (!viewportSize) return
+
     // Map DOM coordinates back to fixed viewport units (independent of DPI)
     const canvasX = (e.clientX - rect.left) * (viewportSize.width / rect.width)
     const canvasY = (e.clientY - rect.top) * (viewportSize.height / rect.height)
@@ -183,7 +186,7 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
     const newStroke = { tool, color, width, opacity, points: [{ x: canvasX, y: canvasY }] }
     currentStrokeRef.current = newStroke  // Set ref synchronously — available immediately in move events
     setCurrentStroke(newStroke)
-  }, [tool, color, lineWidth, activeText, commitText])
+  }, [tool, color, lineWidth, activeText, commitText, viewportSize])
 
   const onPointerMove = useCallback((e) => {
     // Use ref (not state) — state is async and may not have updated yet for fast stylus moves
@@ -192,6 +195,9 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
     if (activePointerType.current === 'pen' && e.pointerType === 'touch') return
     const canvas = canvasRef.current
     const rect = canvas.getBoundingClientRect()
+    // Guard: ensure viewportSize is ready
+    if (!viewportSize) return
+
     const canvasPos = {
       x: (e.clientX - rect.left) * (viewportSize.width / rect.width),
       y: (e.clientY - rect.top) * (viewportSize.height / rect.height)
@@ -224,7 +230,7 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
     // Update the ref synchronously (for the next move event)
     currentStrokeRef.current = { ...currentStrokeRef.current, points: [...currentStrokeRef.current.points, canvasPos] }
     setCurrentStroke(prev => prev ? { ...prev, points: [...prev.points, canvasPos] } : prev)
-  }, [isDrawing, tool, color, lineWidth])
+  }, [isDrawing, tool, color, lineWidth, viewportSize])
 
   const onPointerUp = useCallback((e) => {
     // Palm rejection: only process pointer-up for the active drawing pointer type
@@ -306,15 +312,19 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
     const normalized = finalStrokes.map(s => {
       if (s.xFrac != null) return s // Already normalized (auto-fill)
       const res = { ...s, refScale: scale } // Store the screen-scale used when created
+      
+      const width = viewportSize?.width || 1
+      const height = viewportSize?.height || 1
+
       if (s.type === 'text') {
-        res.xFrac = s.x / viewportSize.width
-        res.yFrac = s.y / viewportSize.height
+        res.xFrac = s.x / width
+        res.yFrac = s.y / height
       } else if (s.points) {
         // For freehand drawing, we normalize each point
         res.points = s.points.map(p => ({
           x: p.x, y: p.y,
-          xFrac: p.x / viewportSize.width,
-          yFrac: p.y / viewportSize.height
+          xFrac: p.x / width,
+          yFrac: p.y / height
         }))
       }
       return res

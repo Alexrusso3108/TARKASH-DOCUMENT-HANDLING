@@ -15,7 +15,7 @@ const WARD_FILTER = ['All', ...WARDS]
 const BED_TYPES = ['General', 'ICU', 'Private', 'Semi-Private', 'Maternity', 'Pediatric', 'Emergency']
 
 // ─── Add Bed Modal ────────────────────────────────────────────────────────────
-function AddBedModal({ onClose, onAdded }) {
+function AddBedModal({ onClose, onAdded, existingBeds = [] }) {
   const [form, setForm] = useState({ id: '', ward: 'General', bed_type: 'General', status: 'available' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -25,6 +25,10 @@ function AddBedModal({ onClose, onAdded }) {
   const handleSubmit = async () => {
     if (!form.id.trim()) { setError('Bed ID is required'); return }
     if (!form.ward) { setError('Ward is required'); return }
+    if (existingBeds.some(b => b.id === form.id.toUpperCase())) {
+      setError(`Bed ID "${form.id.toUpperCase()}" already exists. Please use a unique ID.`);
+      return
+    }
     setSaving(true); setError(null)
     try {
       const bed = await api.createBed(form)
@@ -978,6 +982,7 @@ export default function IPD() {
         <AddBedModal
           onClose={() => setShowAddBed(false)}
           onAdded={handleBedAdded}
+          existingBeds={beds}
         />
       )}
 
