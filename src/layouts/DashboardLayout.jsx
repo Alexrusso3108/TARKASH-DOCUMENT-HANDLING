@@ -4,7 +4,8 @@ import {
   LayoutDashboard, Users, BedDouble, Stethoscope, UserSquare2,
   FileText, FlaskConical, Pill, Receipt, BarChart2, Settings,
   Bell, Search, Menu, LogOut, ChevronRight, Activity, ShieldCheck,
-  ClipboardList, FolderOpen, ScanLine
+  ClipboardList, FolderOpen, ScanLine, HeartPulse, Syringe, Calendar,
+  Building2, LayoutGrid, Thermometer, Ambulance, PackageOpen, AlertTriangle
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../api'
@@ -18,27 +19,47 @@ const BASE_NAV = [
     ],
   },
   {
+    section: 'Patient Care',
+    items: [
+      { label: 'Appointments', path: '/app/appointments', icon: Calendar },
+      { label: 'OPD Management', path: '/app/opd', icon: Stethoscope },
+      { label: 'IPD Management', path: '/app/ipd', icon: BedDouble },
+      { label: 'Ward Management', path: '/app/wards', icon: Building2 },
+      { label: 'Nursing Station', path: '/app/nursing', icon: HeartPulse },
+      { label: 'Emergency', path: '/app/emergency', icon: AlertTriangle },
+    ],
+  },
+  {
     section: 'Clinical',
     items: [
-      { label: 'IPD Management', path: '/app/ipd', icon: BedDouble },
-      { label: 'OPD Management', path: '/app/opd', icon: Stethoscope },
+      { label: 'Doctor Workbench', path: '/app/cpoe', icon: Activity },
       { label: 'Clinical Notes', path: '/app/clinical-notes', icon: FileText, badge: 5 },
       { label: 'Doctors', path: '/app/doctors', icon: UserSquare2 },
+      { label: 'Discharge Summary', path: '/app/discharge-templates', icon: ClipboardList },
+      { label: 'Patient Forms', path: '/app/patient-forms', icon: FolderOpen },
+    ],
+  },
+  {
+    section: 'Diagnostics',
+    items: [
+      { label: 'Laboratory',  path: '/app/laboratory',  icon: FlaskConical },
+      { label: 'Radiology',   path: '/app/radiology',   icon: ScanLine },
+      { label: 'Blood Bank',  path: '/app/blood-bank',  icon: HeartPulse },
     ],
   },
   {
     section: 'Operations',
     items: [
-      { label: 'Laboratory',  path: '/app/laboratory',  icon: FlaskConical },
-      { label: 'Radiology',   path: '/app/radiology',   icon: ScanLine },
+      { label: 'Operation Theatre', path: '/app/operation-theatre', icon: Syringe },
       { label: 'Pharmacy',    path: '/app/pharmacy',    icon: Pill },
-      { label: 'Billing',     path: '/app/billing',     icon: Receipt },
+      { label: 'Inventory',   path: '/app/inventory',   icon: PackageOpen },
     ],
   },
   {
-    section: 'Forms',
+    section: 'Finance',
     items: [
-      { label: 'Patient Forms', path: '/app/patient-forms', icon: ClipboardList },
+      { label: 'Billing',     path: '/app/billing',     icon: Receipt },
+      { label: 'TPA & Insurance', path: '/app/tpa-insurance', icon: ShieldCheck },
     ],
   },
   {
@@ -55,7 +76,7 @@ const ADMIN_NAV = {
   items: [
     { label: 'Staff Management',       path: '/app/staff',               icon: ShieldCheck },
     { label: 'Form Templates',         path: '/app/form-templates',      icon: FolderOpen },
-    { label: 'Discharge Templates',    path: '/app/discharge-templates', icon: ClipboardList },
+    { label: 'Module Overview',        path: '/app/modules',             icon: LayoutGrid },
   ],
 }
 
@@ -198,12 +219,16 @@ export default function DashboardLayout() {
       {/* SIDEBAR */}
       <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="sidebar-logo">
-          <div className="sidebar-logo-mark">
-            <FileText size={18} color="#fff" />
-          </div>
+          {user?.hospitalLogo ? (
+            <img src={user.hospitalLogo} alt="Logo" style={{ width: 36, height: 36, borderRadius: 'var(--radius-md)', objectFit: 'contain', background: '#fff', padding: 2, border: '1px solid rgba(255,255,255,0.2)' }} />
+          ) : (
+            <div className="sidebar-logo-mark">
+              <HeartPulse size={18} color="#fff" />
+            </div>
+          )}
           <div>
-            <div className="sidebar-logo-text">DScribe</div>
-            <div className="sidebar-logo-sub">{user?.hospital_name || 'Clinical Suite'}</div>
+            <div className="sidebar-logo-text">SwasthyaSync</div>
+            <div className="sidebar-logo-sub">{user?.hospitalName || 'Corporate Hospital'}</div>
           </div>
         </div>
 
@@ -261,7 +286,7 @@ export default function DashboardLayout() {
           </button>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', color: 'var(--gray-400)', fontSize: '0.8125rem' }}>
-            <span style={{ color: 'var(--gray-600)', fontWeight: 600 }}>DScribe</span>
+            <span style={{ color: 'var(--gray-600)', fontWeight: 600 }}>SwasthyaSync</span>
             <ChevronRight size={13} />
             <span style={{ color: 'var(--gray-800)', fontWeight: 600 }}>
               {allItems.find(i => isActive(i.path))?.label || 'Dashboard'}

@@ -14,47 +14,47 @@ const NAV_LINKS = [
 ]
 
 const STATS = [
-  { value: '60%', label: 'Cost Reduction' },
-  { value: '35%', label: 'Efficiency Gain' },
+  { value: '40+', label: 'Hospital Modules' },
   { value: '500+', label: 'Hospitals Served' },
+  { value: '99.9%', label: 'System Uptime' },
   { value: '2x', label: 'Faster Discharges' },
 ]
 
 const FEATURES = [
   {
     icon: FileText,
-    title: 'Instant Digitization',
-    desc: 'Handwritten clinical notes become searchable digital records the moment they are written. No scanning, no uploading, no delays.',
+    title: 'Complete Patient Management',
+    desc: 'End-to-end patient lifecycle management — from registration and OPD to IPD admission, ward management, and discharge with full digital records.',
     color: 'gradient-primary',
   },
   {
     icon: Activity,
-    title: 'Real-Time Access',
-    desc: 'All departments see the same live patient file simultaneously, reducing coordination delays and improving care outcomes.',
+    title: 'Real-Time Clinical Data',
+    desc: 'All departments share a live patient record simultaneously — doctors, nurses, lab, pharmacy, and billing all operate from one single source of truth.',
     color: 'gradient-teal',
   },
   {
     icon: Shield,
-    title: 'Audit-Ready Records',
-    desc: 'Every note is timestamped, verified, and NABH-compliant. Eliminate medico-legal risks from missing or incomplete documentation.',
+    title: 'Audit-Ready & NABH Compliant',
+    desc: 'Every record is timestamped and traceable. Built-in insurance audit trails, medico-legal compliance, and NABH documentation standards out of the box.',
     color: 'gradient-blue',
   },
   {
     icon: Zap,
-    title: 'Zero Learning Curve',
-    desc: 'Doctors write naturally with a stylus, exactly as they always have. DScribe adapts to your workflow, not the other way around.',
+    title: 'Integrated Revenue Cycle',
+    desc: 'Seamless billing from OPD to IPD, pharmacy, lab, and radiology. One-click insurance claim submission, GST management, and revenue analytics.',
     color: 'gradient-purple',
   },
   {
     icon: Cloud,
-    title: 'Secure Cloud Storage',
-    desc: 'Patient records are encrypted and stored securely. Access from anywhere with role-based permissions protecting sensitive data.',
+    title: 'Cloud-Native & Secure',
+    desc: 'Role-based access, AES-256 encryption, and full audit logs ensure patient data is always protected and accessible from anywhere.',
     color: 'gradient-green',
   },
   {
     icon: BarChart2,
-    title: 'Analytics Dashboard',
-    desc: 'Track department performance, bed occupancy, discharge rates, and more with live operational dashboards.',
+    title: 'MIS & Analytics Dashboard',
+    desc: 'Live operational dashboards, MIS reports, revenue analytics, bed occupancy tracking, and department-wise performance insights.',
     color: 'gradient-amber',
   },
 ]
@@ -62,18 +62,18 @@ const FEATURES = [
 const STEPS = [
   {
     step: '01',
-    title: 'Doctor Writes Naturally',
-    desc: 'Using a stylus on a tablet, clinicians write notes exactly as they would on paper. No forced templates, no typing, no retraining required.',
+    title: 'Register & Configure',
+    desc: 'Set up your hospital in minutes. Configure departments, wards, doctors, and staff roles. SwasthyaSync adapts to your existing workflow without disruption.',
   },
   {
     step: '02',
-    title: 'Notes Are Instantly Digitized',
-    desc: 'DScribe converts handwriting into structured digital records in real time. The note is indexed, tagged, and made searchable immediately.',
+    title: 'Go Live Across All Modules',
+    desc: 'All 40+ modules become instantly operational — OPD, IPD, Lab, Pharmacy, Billing, Radiology, Blood Bank, OT, and more, all connected in real time.',
   },
   {
     step: '03',
-    title: 'Entire Team Gets Access',
-    desc: 'Nurses, pharmacists, lab technicians, and billing staff all see the same up-to-date patient record, eliminating paper routing delays.',
+    title: 'Measure & Optimise',
+    desc: 'Live dashboards and MIS reports give management complete visibility into financials, clinical efficiency, occupancy, and quality metrics.',
   },
 ]
 
@@ -81,43 +81,43 @@ const TESTIMONIALS = [
   {
     name: 'Dr. Rajiv Mehta',
     role: 'Medical Director, Apollo Hospitals',
-    text: 'DScribe reduced our discharge paperwork time by 60%. Our nurses now spend more time at the bedside instead of behind a filing cabinet.',
+    text: 'SwasthyaSync reduced our discharge paperwork time by 60%. The integrated billing and clinical modules meant our revenue cycle improved from day one.',
     rating: 5,
   },
   {
     name: 'Dr. Priya Sharma',
     role: 'ICU Head, Fortis Healthcare',
-    text: 'The real-time access across departments is transformative. Our ICU team can make decisions faster because everyone is looking at the same live chart.',
+    text: 'Having OPD, IPD, Lab, and Pharmacy all connected in one system is transformative. Our care teams make decisions faster because everyone is on the same page.',
     rating: 5,
   },
   {
     name: 'Anant Bose',
     role: 'COO, Manipal Hospitals',
-    text: 'Implementation took less than a week per department. The ROI was visible within 30 days through reduced storage and paper costs alone.',
+    text: 'Implementation took less than a week per department. The ROI was visible within 30 days through improved billing accuracy and reduced administrative overhead.',
     rating: 5,
   },
 ]
 
 const FAQS = [
   {
-    q: 'What ROI can hospitals expect after implementing DScribe?',
-    a: 'For a 100-bed hospital, DScribe typically delivers Rs 25 lakhs or more in annual savings by reducing paper usage, physical storage, and file-handling overhead. Hospitals also experience a 30-35% productivity improvement across clinical teams.',
+    q: 'How many modules does SwasthyaSync cover?',
+    a: 'SwasthyaSync includes 40+ fully integrated hospital modules covering Patient Administration, OPD, IPD, Clinical, Laboratory, Radiology, Pharmacy, Blood Bank, Operation Theatre, Billing, Revenue Cycle, Inventory, Analytics, Emergency, and more.',
   },
   {
-    q: 'Will doctors and nurses need to change how they work?',
-    a: 'No. DScribe is designed to fit seamlessly into existing clinical workflows. Doctors continue writing with a stylus, and the system digitizes notes in the background without requiring any changes to how clinicians operate.',
+    q: 'What ROI can hospitals expect after implementing SwasthyaSync?',
+    a: 'For a 100-bed hospital, SwasthyaSync typically delivers Rs 25 lakhs or more in annual savings through improved billing accuracy, reduced administrative overhead, faster discharges, and eliminated paper costs.',
   },
   {
-    q: 'How long does it take to implement DScribe in a department?',
-    a: 'Most departments are fully operational within 3-7 days. Our onboarding team handles setup, device configuration, and staff training so there is no disruption to patient care during rollout.',
+    q: 'How long does implementation take?',
+    a: 'Most departments are fully operational within 3-7 days. Our onboarding team handles setup, configuration, and staff training with no disruption to patient care during rollout.',
   },
   {
-    q: 'Are DScribe digital records accepted for NABH and insurance audits?',
-    a: 'Yes. DScribe records are fully compliant with NABH documentation standards and are accepted by major insurance providers for audit and claim processing.',
+    q: 'Is SwasthyaSync NABH and insurance compliant?',
+    a: 'Yes. All records are fully compliant with NABH documentation standards and are accepted by major insurance providers for audit and claim processing. Built-in medical and technical audit trails are included.',
   },
   {
-    q: 'How secure are patient records in DScribe?',
-    a: 'Patient data is encrypted at rest and in transit using industry-standard AES-256 encryption. Access is controlled through role-based permissions, and all actions are logged in a tamper-proof audit trail.',
+    q: 'How secure is patient data in SwasthyaSync?',
+    a: 'Patient data is encrypted at rest and in transit using AES-256 encryption. Role-based access control ensures each staff member only sees what they need, with all actions logged in a tamper-proof audit trail.',
   },
 ]
 
@@ -199,10 +199,10 @@ export default function LandingPage() {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             boxShadow: '0 4px 12px rgba(79,70,229,0.3)',
           }}>
-            <FileText size={18} color="#fff" />
+            <Activity size={18} color="#fff" />
           </div>
           <span style={{ fontSize: '1.375rem', fontWeight: 800, color: 'var(--gray-900)', letterSpacing: '-0.04em' }}>
-            DScribe
+            SwasthyaSync
           </span>
         </div>
 
@@ -237,21 +237,20 @@ export default function LandingPage() {
                 Trusted by 500+ hospitals across India
               </div>
               <h1 className="hero-headline">
-                Cut discharge time
+                One platform.
                 <br />
-                in <span>half</span>.
+                Every hospital
                 <br />
-                Eliminate the
+                <span>module</span>.
                 <br />
-                paper chase.
+                Zero silos.
               </h1>
               <p className="hero-subtext">
-                DScribe helps hospitals instantly digitize handwritten clinical notes,
-                reduce paperwork, speed up discharges, and improve doctor and nurse efficiency.
+                SwasthyaSync is a complete Hospital Management System with 40+ integrated modules — from patient registration and OPD to billing, pharmacy, lab, radiology, blood bank, and beyond.
               </p>
               <div className="hero-cta">
                 <button className="btn btn-primary btn-xl" onClick={() => navigate('/app')}>
-                  Explore the System
+                  Explore All Modules
                   <ArrowRight size={18} />
                 </button>
                 <button className="btn btn-secondary btn-lg" onClick={() => navigate('/app')}>
@@ -283,7 +282,7 @@ export default function LandingPage() {
                     <div key={c} style={{ width: 10, height: 10, borderRadius: '50%', background: c }} />
                   ))}
                   <div style={{ flex: 1, background: 'rgba(255,255,255,0.08)', borderRadius: 6, height: 24, marginLeft: 8, display: 'flex', alignItems: 'center', paddingLeft: 10 }}>
-                    <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)' }}>app.dscribe.in/dashboard</span>
+                    <span style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)' }}>app.swasthyasync.in/dashboard</span>
                   </div>
                 </div>
                 {/* Mock stat cards */}
@@ -352,9 +351,9 @@ export default function LandingPage() {
             <div className="badge badge-primary" style={{ marginBottom: '1rem', fontSize: '0.8125rem' }}>
               Core Features
             </div>
-            <h2 style={{ marginBottom: '1rem' }}>Making clinical documentation simpler</h2>
+            <h2 style={{ marginBottom: '1rem' }}>Everything a modern hospital needs</h2>
             <p style={{ color: 'var(--gray-500)', fontSize: '1.0625rem' }}>
-              Every feature in DScribe is built around one principle — clinicians should spend more time with patients, not with paperwork.
+              Every feature in SwasthyaSync is built to connect your entire hospital — from the front desk to the ICU, pharmacy, and billing — in one seamless system.
             </p>
           </div>
           <div className="grid grid-3" style={{ gap: '1.5rem' }}>
@@ -378,9 +377,9 @@ export default function LandingPage() {
             <div className="badge badge-teal" style={{ marginBottom: '1rem' }}>
               How It Works
             </div>
-            <h2 style={{ marginBottom: '1rem' }}>Three steps to a paperless hospital</h2>
+            <h2 style={{ marginBottom: '1rem' }}>Three steps to a connected hospital</h2>
             <p style={{ color: 'var(--gray-500)', fontSize: '1.0625rem' }}>
-              DScribe integrates into your current workflow without disruption. Here is exactly what happens.
+              SwasthyaSync goes live fast and integrates seamlessly with your existing hospital processes.
             </p>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2rem', position: 'relative' }}>
@@ -418,21 +417,21 @@ export default function LandingPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '5rem', alignItems: 'center' }}>
             <div>
               <div className="badge" style={{ background: 'rgba(99,102,241,0.2)', color: 'var(--primary-300)', border: '1px solid rgba(99,102,241,0.3)', marginBottom: '1.5rem' }}>
-                DScribe Advantage
+                SwasthyaSync Advantage
               </div>
               <h2 style={{ color: '#fff', marginBottom: '1.5rem' }}>
-                Better care, less paperwork.
+                Better care, complete visibility.
               </h2>
               <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '1.0625rem', lineHeight: 1.8, marginBottom: '2.5rem' }}>
-                DScribe removes the everyday hassles around paper documentation so clinicians can focus on patients, not files. The impact is felt across every department.
+                SwasthyaSync connects every department in your hospital — from patient registration and clinical care to diagnostics, pharmacy, billing, and administration — in one unified platform.
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 {[
-                  'Records complete and accessible within seconds of writing',
-                  'Nursing time saved on filing, scanning, and searching',
-                  'Paper and storage costs reduced by up to 60%',
+                  '40+ modules covering all hospital departments',
+                  'Real-time data shared across OPD, IPD, Lab, Pharmacy, and Billing',
+                  'Integrated revenue cycle with insurance claim management',
                   'NABH and insurance audit compliance built in',
-                  'Discharge process accelerated by 50%',
+                  'Live MIS dashboards and operational analytics',
                 ].map((item, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
                     <div style={{
@@ -446,16 +445,16 @@ export default function LandingPage() {
                 ))}
               </div>
               <button className="btn btn-primary btn-lg" style={{ marginTop: '2.5rem' }} onClick={() => navigate('/app')}>
-                See It in Action
+                Explore All Modules
                 <ArrowRight size={16} />
               </button>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
               {[
                 { label: 'Annual Savings', value: 'Rs 25L+', sub: 'For a 100-bed hospital', color: 'var(--primary-400)' },
-                { label: 'Productivity Gain', value: '35%', sub: 'Across clinical teams', color: 'var(--accent-teal)' },
-                { label: 'Discharge Time', value: '-50%', sub: 'Reduction in delay', color: 'var(--accent-green)' },
-                { label: 'Paper Costs', value: '-60%', sub: 'Operational savings', color: 'var(--accent-amber)' },
+                { label: 'Modules Covered', value: '40+', sub: 'Fully integrated', color: 'var(--accent-teal)' },
+                { label: 'Implementation', value: '7 Days', sub: 'Average go-live time', color: 'var(--accent-green)' },
+                { label: 'System Uptime', value: '99.9%', sub: 'SLA guaranteed', color: 'var(--accent-amber)' },
               ].map((m, i) => (
                 <div key={i} style={{
                   background: 'rgba(255,255,255,0.05)',
@@ -484,7 +483,7 @@ export default function LandingPage() {
             </div>
             <h2 style={{ marginBottom: '1rem' }}>Trusted by leading hospitals</h2>
             <p style={{ color: 'var(--gray-500)', fontSize: '1.0625rem' }}>
-              See what medical leaders across India say about their experience with DScribe.
+              See what medical leaders across India say about their experience with SwasthyaSync.
             </p>
           </div>
           <div className="grid grid-3" style={{ gap: '1.5rem' }}>
@@ -545,9 +544,9 @@ export default function LandingPage() {
         textAlign: 'center',
       }}>
         <div className="container">
-          <h2 style={{ color: '#fff', marginBottom: '1rem' }}>Ready to go paperless?</h2>
+          <h2 style={{ color: '#fff', marginBottom: '1rem' }}>Ready to unify your hospital?</h2>
           <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '1.125rem', marginBottom: '2.5rem', maxWidth: 480, margin: '0 auto 2.5rem' }}>
-            Join 500+ hospitals that have eliminated paper documentation with DScribe.
+            Join 500+ hospitals that run on SwasthyaSync — India's most comprehensive Hospital Management System.
           </p>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1rem', flexWrap: 'wrap' }}>
             <button
@@ -555,7 +554,7 @@ export default function LandingPage() {
               style={{ background: '#fff', color: 'var(--primary-700)', fontWeight: 700 }}
               onClick={() => navigate('/app')}
             >
-              Launch Demo System
+              Launch Live System
               <ArrowRight size={18} />
             </button>
             <button
@@ -583,10 +582,10 @@ export default function LandingPage() {
                 }}>
                   <FileText size={16} color="#fff" />
                 </div>
-                <span style={{ fontWeight: 800, fontSize: '1.125rem', color: '#fff' }}>DScribe</span>
+                <span style={{ fontWeight: 800, fontSize: '1.125rem', color: '#fff' }}>SwasthyaSync</span>
               </div>
               <p style={{ fontSize: '0.875rem', lineHeight: 1.75, maxWidth: 280 }}>
-                Helping hospitals eliminate paper documentation and focus on what matters most — patient care.
+                India's complete Hospital Management System — connecting every department, every workflow, and every patient touchpoint in one unified platform.
               </p>
             </div>
             {[
@@ -608,8 +607,8 @@ export default function LandingPage() {
             ))}
           </div>
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: '0.8125rem' }}>2026 DScribe. All rights reserved.</span>
-            <span style={{ fontSize: '0.8125rem' }}>contact@dscribe.in</span>
+            <span style={{ fontSize: '0.8125rem' }}>2026 SwasthyaSync. All rights reserved.</span>
+            <span style={{ fontSize: '0.8125rem' }}>contact@swasthyasync.in</span>
           </div>
         </div>
       </footer>

@@ -50,7 +50,7 @@ export function requireAdmin(req, res, next) {
 // POST /api/auth/register  — Admin registers a new hospital
 // ─────────────────────────────────────────────────────────────
 router.post('/register', async (req, res) => {
-  const { hospitalName, city, address, phone, email, licenseNo, bedCount, adminName, adminEmail, adminPhone, password } = req.body
+  const { hospitalName, city, address, phone, email, licenseNo, bedCount, adminName, adminEmail, adminPhone, password, logo } = req.body
 
   if (!hospitalName || !adminName || !password) {
     return res.status(400).json({ error: 'Hospital name, admin name and password are required' })
@@ -71,14 +71,18 @@ router.post('/register', async (req, res) => {
 
     // Create hospital
     const { rows: [hospital] } = await client.query(
-      `INSERT INTO hospitals (name, city, address, phone, email, license_no, bed_count)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [hospitalName, city, address, phone, email, licenseNo || null, bedCount || 0]
+      `INSERT INTO hospitals (name, city, address, phone, email, license_no, bed_count, logo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [hospitalName, city, address, phone, email, licenseNo || null, bedCount || 0, logo || null]
     )
 
     // Hash password
     const hash = await bcrypt.hash(password, 12)
-    const loginId = makeLoginId('admin', adminName, hospitalName)
+    let loginId = makeLoginId('admin', adminName, hospitalName)
+
+    // Make unique if clash
+    const { rows: clash } = await client.query('SELECT id FROM users WHERE login_id=$1', [loginId])
+    if (clash.length) loginId = loginId + Math.floor(Math.random() * 900 + 100)
 
     // Create admin user
     const { rows: [user] } = await client.query(
@@ -96,7 +100,7 @@ router.post('/register', async (req, res) => {
 
     res.status(201).json({
       token,
-      user: { id: user.id, name: user.name, role: 'admin', loginId: user.login_id, hospitalId: hospital.id, hospitalName: hospital.name },
+      user: { id: user.id, name: user.name, role: 'admin', loginId: user.login_id, hospitalId: hospital.id, hospitalName: hospital.name, hospitalLogo: hospital.logo },
     })
   } catch (e) {
     await client.query('ROLLBACK')
@@ -116,7 +120,7 @@ router.post('/login', async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `SELECT u.*, h.name AS hospital_name
+      `SELECT u.*, h.name AS hospital_name, h.logo AS hospital_logo
        FROM users u JOIN hospitals h ON u.hospital_id = h.id
        WHERE u.login_id = $1`,
       [loginId.trim()]
@@ -137,6 +141,7 @@ router.post('/login', async (req, res) => {
         id: user.id, name: user.name, role: user.role,
         loginId: user.login_id, department: user.department,
         hospitalId: user.hospital_id, hospitalName: user.hospital_name,
+        hospitalLogo: user.hospital_logo
       },
     })
   } catch (e) {
@@ -151,13 +156,19 @@ router.get('/me', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT u.id, u.name, u.email, u.login_id, u.role, u.department, u.phone, u.is_active,
-              u.hospital_id, h.name AS hospital_name, h.city
+              u.hospital_id, h.name AS hospital_name, h.city, h.logo AS hospital_logo
        FROM users u JOIN hospitals h ON u.hospital_id = h.id
        WHERE u.id = $1`,
       [req.user.id]
     )
     if (!rows.length) return res.status(404).json({ error: 'User not found' })
-    res.json(rows[0])
+    const u = rows[0]
+    res.json({
+      id: u.id, name: u.name, email: u.email, loginId: u.login_id, role: u.role,
+      department: u.department, phone: u.phone, isActive: u.is_active,
+      hospitalId: u.hospital_id, hospitalName: u.hospital_name, city: u.city,
+      hospitalLogo: u.hospital_logo
+    })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }

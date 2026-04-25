@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { FileText, Loader, ArrowRight, ArrowLeft, Building2, User, Lock, Eye, EyeOff, CheckCircle } from 'lucide-react'
+import { HeartPulse, Loader, ArrowRight, ArrowLeft, Building2, User, Lock, Eye, EyeOff, CheckCircle } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { BASE_URL } from '../api'
 
@@ -54,7 +54,7 @@ export default function RegisterPage() {
   const [done, setDone] = useState(false)
   const [createdInfo, setCreatedInfo] = useState(null)
 
-  const [hosp, setHosp] = useState({ name: '', city: '', address: '', phone: '', email: '', licenseNo: '', bedCount: '' })
+  const [hosp, setHosp] = useState({ name: '', city: '', address: '', phone: '', email: '', licenseNo: '', bedCount: '', logo: '' })
   const [admin, setAdmin] = useState({ name: '', email: '', phone: '', password: '', confirm: '' })
 
   const hset = (k, v) => setHosp(f => ({ ...f, [k]: v }))
@@ -91,7 +91,7 @@ export default function RegisterPage() {
           phone: hosp.phone, email: hosp.email, licenseNo: hosp.licenseNo,
           bedCount: hosp.bedCount ? parseInt(hosp.bedCount) : 0,
           adminName: admin.name, adminEmail: admin.email,
-          adminPhone: admin.phone, password: admin.password,
+          adminPhone: admin.phone, password: admin.password, logo: hosp.logo
         }),
       })
       const data = await res.json()
@@ -154,9 +154,9 @@ export default function RegisterPage() {
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.625rem', marginBottom: '1.25rem' }}>
             <div style={{ width: 40, height: 40, borderRadius: 12, background: 'linear-gradient(135deg, #6366f1, #0d9488)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <FileText size={20} color="#fff" />
+              <HeartPulse size={20} color="#fff" />
             </div>
-            <span style={{ fontSize: '1.25rem', fontWeight: 900, color: 'var(--gray-900)' }}>DScribe</span>
+            <span style={{ fontSize: '1.25rem', fontWeight: 900, color: 'var(--gray-900)' }}>SwasthyaSync</span>
           </div>
           <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--gray-900)', marginBottom: '0.375rem' }}>Register Your Hospital</h1>
           <p style={{ fontSize: '0.875rem', color: 'var(--gray-500)' }}>Admin-only registration · Takes 2 minutes</p>
@@ -203,6 +203,22 @@ export default function RegisterPage() {
               <Field label="Total Bed Count">
                 <input className="form-input" type="number" placeholder="e.g. 150" value={hosp.bedCount} onChange={e => hset('bedCount', e.target.value)} />
               </Field>
+              <div style={{ gridColumn: '1 / -1', marginTop: '0.25rem' }}>
+                <label className="form-label">Professional Hospital Logo <span style={{ color: 'var(--gray-400)', fontWeight: 400, fontSize: '0.75rem' }}>(Optional)</span></label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginTop: '0.25rem' }}>
+                  {hosp.logo && (
+                    <img src={hosp.logo} alt="Logo" style={{ width: 42, height: 42, borderRadius: 'var(--radius-lg)', objectFit: 'contain', background: '#fff', border: '1px solid var(--gray-200)' }} />
+                  )}
+                  <input className="form-input" type="file" accept="image/*" style={{ flex: 1, padding: '0.4rem' }} onChange={e => {
+                    const f = e.target.files[0]
+                    if (f) {
+                      const r = new FileReader()
+                      r.onload = ev => hset('logo', ev.target.result)
+                      r.readAsDataURL(f)
+                    }
+                  }} />
+                </div>
+              </div>
             </div>
           </div>
         )}

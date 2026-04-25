@@ -39,6 +39,7 @@ CREATE TABLE patients (
   department    VARCHAR(100),
   doctor_id     VARCHAR(20) REFERENCES doctors(id),
   phone         VARCHAR(20),
+  email         VARCHAR(100),
   status        VARCHAR(30) DEFAULT 'Stable', -- Stable | Critical | Recovering | Under Obs
   admission_type VARCHAR(20) DEFAULT 'OPD',   -- IPD | OPD | Emergency
   admitted_at   TIMESTAMPTZ DEFAULT NOW(),

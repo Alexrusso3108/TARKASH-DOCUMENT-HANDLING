@@ -4,8 +4,8 @@ import { BASE_URL } from '../api'
 
 const AuthContext = createContext(null)
 
-const TOKEN_KEY = 'dscribe_token'
-const USER_KEY = 'dscribe_user'
+const TOKEN_KEY = 'swasthyasync_token'
+const USER_KEY = 'swasthyasync_user'
 
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY))

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { Eye, EyeOff, FileText, Loader, ArrowRight, Lock, User } from 'lucide-react'
+import { Eye, EyeOff, HeartPulse, Loader, ArrowRight, Lock, User } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { BASE_URL } from '../api'
 
@@ -53,11 +53,11 @@ export default function LoginPage() {
           {/* Logo */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.75rem', marginBottom: '3rem' }}>
             <div style={{ width: 52, height: 52, borderRadius: 16, background: 'linear-gradient(135deg, #6366f1, #0d9488)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 30px rgba(99,102,241,0.5)' }}>
-              <FileText size={26} color="#fff" />
+              <HeartPulse size={26} color="#fff" />
             </div>
             <div>
-              <div style={{ fontSize: '1.75rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.04em' }}>DScribe</div>
-              <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)', letterSpacing: '0.15em', textTransform: 'uppercase', marginTop: -3 }}>Clinical Suite</div>
+              <div style={{ fontSize: '1.75rem', fontWeight: 900, color: '#fff', letterSpacing: '-0.04em' }}>SwasthyaSync</div>
+              <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)', letterSpacing: '0.15em', textTransform: 'uppercase', marginTop: -3 }}>Hospital Management System</div>
             </div>
           </div>
 
@@ -146,7 +146,7 @@ export default function LoginPage() {
           </form>
 
           <div style={{ marginTop: '2rem', padding: '1.25rem', background: '#fff', border: '1px solid var(--gray-100)', borderRadius: 'var(--radius-xl)', textAlign: 'center' }}>
-            <p style={{ fontSize: '0.875rem', color: 'var(--gray-500)', marginBottom: '0.75rem' }}>New to DScribe?</p>
+            <p style={{ fontSize: '0.875rem', color: 'var(--gray-500)', marginBottom: '0.75rem' }}>New to SwasthyaSync?</p>
             <Link
               to="/register"
               style={{ display: 'inline-flex', alignItems: 'center', gap: '0.375rem', color: 'var(--primary-600)', fontWeight: 700, fontSize: '0.9375rem', textDecoration: 'none' }}

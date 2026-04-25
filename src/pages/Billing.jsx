@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Search, Plus, Receipt, X, CheckCircle, Download, Loader } from 'lucide-react'
+import { Search, Plus, Receipt, X, CheckCircle, Download, Loader, Activity, ShieldCheck, ArrowRight, CreditCard, Stethoscope, FileText } from 'lucide-react'
 import { api } from '../api'
 
 const STATUS_STYLES = {
@@ -143,6 +143,28 @@ export default function Billing() {
   const [statusFilter, setStatusFilter] = useState('All')
   const [selectedBill, setSelectedBill] = useState(null)
   const [showModal, setShowModal] = useState(false)
+  const [activeTab, setActiveTab] = useState('op') // 'op' or 'ip'
+
+  // IP Discharge Queue (Actual Admitted Patients)
+  const [ipQueue, setIpQueue] = useState([])
+
+  const IP_STEPS = [
+    'Discharge Advised',
+    'Clinical Summary',
+    'Pharmacy Clearance',
+    'Laboratory Clearance',
+    'Final Billing',
+    'Settle & Vacate'
+  ]
+
+  const advanceIpWorkflow = async (bedId, currentStep) => {
+    if (currentStep >= IP_STEPS.length - 1) return
+    try {
+      const next = currentStep + 1
+      const updated = await api.updateDischargeStep(bedId, { step: next, status: IP_STEPS[next] })
+      setIpQueue(prev => prev.map(p => p.bed_id === bedId ? { ...p, step: updated.discharge_step, status: updated.discharge_status } : p))
+    } catch (e) { alert('Update failed: ' + e.message) }
+  }
 
   const fetchData = useCallback(async () => {
     setLoading(true); setError(null)
@@ -152,6 +174,22 @@ export default function Billing() {
       if (search) params.search = search
       const data = await api.getBilling(params)
       setBills(data)
+
+      // Fetch actual admitted IP patients from Ward/Beds
+      const allBeds = await api.getBeds()
+      const occupied = allBeds.filter(b => b.status === 'occupied')
+      
+      setIpQueue(occupied.map(b => ({
+        id: b.patient_id || 'Unknown',
+        bed_id: b.id,
+        name: b.patient_name || 'Unknown Patient',
+        ward: `${b.ward} (${b.id})`,
+        type: b.patient_id?.includes('INS') ? 'Insurance' : 'Cash', // Simple heuristic
+        doctor: b.doctor_name || 'General Physician',
+        step: b.discharge_step || 0,
+        status: b.discharge_status || 'Admitted'
+      })))
+
     } catch (e) { setError(e.message) } finally { setLoading(false) }
   }, [search, statusFilter])
 
@@ -181,13 +219,30 @@ export default function Billing() {
     <div className="animate-fadeInUp">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Billing</h1>
-          <p className="page-subtitle">Invoice management, payments, and financial records</p>
+          <h1 className="page-title">Billing & Discharge</h1>
+          <p className="page-subtitle">Manage OP invoices and track IP discharge workflows</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={15} /> Generate Invoice</button>
+        {activeTab === 'op' && (
+          <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={15} /> Generate Invoice</button>
+        )}
       </div>
 
-      <div className="grid grid-4" style={{ gap: '1rem', marginBottom: '1.5rem' }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--gray-200)', marginBottom: '1.5rem', background: '#fff', borderRadius: 'var(--radius-lg)' }}>
+        <button 
+          onClick={() => setActiveTab('op')}
+          style={{ padding: '1rem 1.5rem', background: 'none', border: 'none', borderBottom: `2.5px solid ${activeTab === 'op' ? 'var(--primary-600)' : 'transparent'}`, color: activeTab === 'op' ? 'var(--primary-700)' : 'var(--gray-500)', fontWeight: activeTab === 'op' ? 700 : 500, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <Receipt size={16} /> OP Billing Ledger
+        </button>
+        <button 
+          onClick={() => setActiveTab('ip')}
+          style={{ padding: '1rem 1.5rem', background: 'none', border: 'none', borderBottom: `2.5px solid ${activeTab === 'ip' ? 'var(--primary-600)' : 'transparent'}`, color: activeTab === 'ip' ? 'var(--primary-700)' : 'var(--gray-500)', fontWeight: activeTab === 'ip' ? 700 : 500, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <FileText size={16} /> IP Billing & Discharge Process
+        </button>
+      </div>
+
+      {activeTab === 'op' ? (
+        <>
+          <div className="grid grid-4" style={{ gap: '1rem', marginBottom: '1.5rem' }}>
         {[
           { label: 'Total Invoices', val: bills.length, color: 'var(--gray-700)', bg: 'var(--gray-50)' },
           { label: 'Revenue Collected', val: `Rs ${(totalRevenue / 100000).toFixed(1)}L`, color: '#059669', bg: 'rgba(16,185,129,0.06)' },
@@ -264,10 +319,72 @@ export default function Billing() {
             </tbody>
           </table>
         </div>
-        <div className="card-footer">
-          <span style={{ fontSize: '0.8125rem', color: 'var(--gray-500)' }}>Showing {bills.length} invoices</span>
         </div>
-      </div>
+        </>
+      ) : (
+        <div className="grid" style={{ gap: '1.5rem' }}>
+          {ipQueue.map(p => (
+            <div key={p.id} style={{ background: '#fff', borderRadius: 'var(--radius-xl)', padding: '1.5rem', border: '1px solid var(--gray-200)', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--gray-900)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>{p.name} <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '0.2rem 0.5rem', borderRadius: 999, background: 'var(--gray-100)', color: 'var(--gray-700)' }}>{p.id}</span></h3>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--gray-500)', marginTop: '0.25rem', display: 'flex', gap: '1rem' }}>
+                    <span>Ward: <strong style={{ color: 'var(--gray-800)' }}>{p.ward}</strong></span>
+                    <span>Doctor: <strong>{p.doctor}</strong></span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: p.type === 'Insurance' ? '#4338ca' : '#059669', fontWeight: 700 }}>
+                      {p.type === 'Insurance' ? <ShieldCheck size={14}/> : <CreditCard size={14}/>} {p.type} Patient
+                    </span>
+                  </div>
+                </div>
+                <button 
+                  className={`btn btn-sm ${p.step >= IP_STEPS.length - 1 ? 'btn-ghost' : 'btn-primary'}`} 
+                  disabled={p.step >= IP_STEPS.length - 1}
+                  onClick={() => advanceIpWorkflow(p.bed_id, p.step)}
+                >
+                  {p.step >= IP_STEPS.length - 1 ? 'Discharged' : 'Advance Workflow'} <ArrowRight size={14} />
+                </button>
+              </div>
+
+              {/* Progress Stepper */}
+              <div style={{ display: 'flex', position: 'relative', marginTop: '1rem', gap: '0.5rem' }}>
+                {IP_STEPS.map((stepName, idx) => {
+                  const isCompleted = idx < p.step;
+                  const isActive = idx === p.step;
+                  let stepColor = isCompleted ? '#10b981' : isActive ? 'var(--primary-600)' : 'var(--gray-200)';
+                  
+                  return (
+                    <div key={stepName} style={{ flex: 1, position: 'relative' }}>
+                      <div style={{ height: 6, background: stepColor, borderRadius: 999, marginBottom: '0.5rem', transition: 'background 0.3s' }}></div>
+                      <div style={{ fontSize: '0.7rem', fontWeight: isActive ? 800 : 600, color: isCompleted || isActive ? 'var(--gray-800)' : 'var(--gray-400)', lineHeight: 1.2 }}>{stepName}</div>
+                                     {/* Workflow Details per Step */}
+                      {isActive && (
+                        <div className="animate-fadeInUp" style={{ background: '#f8fafc', padding: '0.75rem', borderRadius: 'var(--radius-lg)', marginTop: '0.75rem', border: '1px solid var(--gray-200)' }}>
+                          {idx === 0 && <span style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}><Stethoscope size={12}/> Treating doctor advises discharge. Ward in-charge notified.</span>}
+                          {idx === 1 && <span style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}><Activity size={12}/> Compiling medical records and final clinical notes into Discharge Summary.</span>}
+                          {idx === 2 && <span style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}><Pill size={12}/> Returning unused meds and generating final pharmacy clearance bill.</span>}
+                          {idx === 3 && <span style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}><FlaskConical size={12}/> Verifying all pending lab tests are completed and reports attached.</span>}
+                          {idx === 4 && <span style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}><Receipt size={12}/> Billing department calculating final invoice including bed, meds, and tests.</span>}
+                          {idx === 5 && (
+                            <div style={{ fontSize: '0.75rem', color: 'var(--gray-700)' }}>
+                              <p style={{ margin: '0 0 0.5rem 0', fontWeight: 600 }}>Billing & Settlement</p>
+                              {p.type === 'Cash' ? (
+                                <span style={{ color: '#059669', background: 'rgba(16,185,129,0.1)', padding: '0.15rem 0.4rem', borderRadius: 4 }}>Settle final bill amount directly via Cash/Card/UPI.</span>
+                              ) : (
+                                <span style={{ color: '#4338ca', background: 'rgba(99,102,241,0.1)', padding: '0.15rem 0.4rem', borderRadius: 4 }}>Awaiting TPA approval for claim settlement (2-6 hours).</span>
+                              )}
+                            </div>
+                          )}
+                          {idx === 6 && <span style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}><CheckCircle size={12}/> All clearances received. Final gate pass issued. Room vacated.</span>}
+                        </div>
+                      )}       )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {selectedBill && <BillModal bill={selectedBill} onClose={() => setSelectedBill(null)} onMarkPaid={handleMarkPaid} />}
       {showModal && <NewBillModal patients={patients} onClose={() => setShowModal(false)} onSave={handleSave} />}

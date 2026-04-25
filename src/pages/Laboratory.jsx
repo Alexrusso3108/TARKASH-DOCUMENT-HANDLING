@@ -1,6 +1,154 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Plus, FlaskConical, X, CheckCircle, Loader, UploadCloud, FileText, ExternalLink } from 'lucide-react'
+import { Search, Plus, FlaskConical, X, CheckCircle, Loader, UploadCloud, FileText, ExternalLink, Download, Mail } from 'lucide-react'
 import { api, SERVER_URL } from '../api'
+import { jsPDF } from 'jspdf'
+import autoTable from 'jspdf-autotable'
+
+const LAB_TEST_CATALOG = {
+  'CBC (Complete Blood Count)': { category: 'Haematology', parameters: [
+    { id: 'hb', name: 'Haemoglobin', unit: 'g/dL', range: '13-17', min: 13, max: 17 },
+    { id: 'tlc', name: 'Total Leukocyte Count', unit: 'cells/cumm', range: '4000-11000', min: 4000, max: 11000 },
+    { id: 'plt', name: 'Platelet Count', unit: 'lakhs/cumm', range: '1.5-4.5', min: 1.5, max: 4.5 },
+    { id: 'rbc', name: 'RBC Count', unit: 'millions/cumm', range: '4.5-5.5', min: 4.5, max: 5.5 },
+    { id: 'hct', name: 'Hematocrit', unit: '%', range: '40-50', min: 40, max: 50 },
+    { id: 'mcv', name: 'MCV', unit: 'fL', range: '83-101', min: 83, max: 101 },
+    { id: 'mch', name: 'MCH', unit: 'pg', range: '27-32', min: 27, max: 32 },
+    { id: 'mchc', name: 'MCHC', unit: 'g/dL', range: '32-36', min: 32, max: 36 }
+  ]},
+  'Liver Function Test (LFT)': { category: 'Biochemistry', parameters: [
+    { id: 'bil_t', name: 'Bilirubin Total', unit: 'mg/dL', range: '0.3-1.2', min: 0.3, max: 1.2 },
+    { id: 'bil_d', name: 'Bilirubin Direct', unit: 'mg/dL', range: '0.1-0.4', min: 0.1, max: 0.4 },
+    { id: 'sgpt', name: 'SGPT (ALT)', unit: 'U/L', range: '5-40', min: 5, max: 40 },
+    { id: 'sgot', name: 'SGOT (AST)', unit: 'U/L', range: '8-40', min: 8, max: 40 },
+    { id: 'alp', name: 'Alkaline Phosphatase', unit: 'U/L', range: '40-129', min: 40, max: 129 },
+    { id: 'tp', name: 'Total Protein', unit: 'g/dL', range: '6.0-8.3', min: 6.0, max: 8.3 },
+    { id: 'alb', name: 'Albumin', unit: 'g/dL', range: '3.5-5.5', min: 3.5, max: 5.5 },
+    { id: 'glob', name: 'Globulin', unit: 'g/dL', range: '2.0-3.5', min: 2.0, max: 3.5 }
+  ]},
+  'Kidney Function Test (KFT)': { category: 'Biochemistry', parameters: [
+    { id: 'urea', name: 'Blood Urea', unit: 'mg/dL', range: '15-40', min: 15, max: 40 },
+    { id: 'creat', name: 'Serum Creatinine', unit: 'mg/dL', range: '0.6-1.2', min: 0.6, max: 1.2 },
+    { id: 'uric', name: 'Uric Acid', unit: 'mg/dL', range: '3.5-7.2', min: 3.5, max: 7.2 },
+    { id: 'sodium', name: 'Sodium', unit: 'mEq/L', range: '135-145', min: 135, max: 145 },
+    { id: 'potassium', name: 'Potassium', unit: 'mEq/L', range: '3.5-5.0', min: 3.5, max: 5.0 },
+    { id: 'chloride', name: 'Chloride', unit: 'mEq/L', range: '96-106', min: 96, max: 106 },
+    { id: 'calcium', name: 'Calcium', unit: 'mg/dL', range: '8.5-10.5', min: 8.5, max: 10.5 }
+  ]},
+  'Lipid Profile': { category: 'Biochemistry', parameters: [
+    { id: 'chol', name: 'Total Cholesterol', unit: 'mg/dL', range: '<200', min: 0, max: 200 },
+    { id: 'trig', name: 'Triglycerides', unit: 'mg/dL', range: '<150', min: 0, max: 150 },
+    { id: 'hdl', name: 'HDL Cholesterol', unit: 'mg/dL', range: '>40', min: 40, max: 60 },
+    { id: 'ldl', name: 'LDL Cholesterol', unit: 'mg/dL', range: '<100', min: 0, max: 100 },
+    { id: 'vldl', name: 'VLDL Cholesterol', unit: 'mg/dL', range: '5-40', min: 5, max: 40 }
+  ]},
+  'Thyroid Profile (T3, T4, TSH)': { category: 'Pathology', parameters: [
+    { id: 't3', name: 'Total T3', unit: 'ng/dL', range: '80-200', min: 80, max: 200 },
+    { id: 't4', name: 'Total T4', unit: 'ug/dL', range: '4.5-12.0', min: 4.5, max: 12.0 },
+    { id: 'tsh', name: 'TSH', unit: 'uIU/mL', range: '0.4-4.0', min: 0.4, max: 4.0 },
+    { id: 'ft3', name: 'Free T3', unit: 'pg/mL', range: '2.0-4.4', min: 2.0, max: 4.4 },
+    { id: 'ft4', name: 'Free T4', unit: 'ng/dL', range: '0.8-1.8', min: 0.8, max: 1.8 }
+  ]},
+  'HbA1c (Glycosylated Hemoglobin)': { category: 'Pathology', parameters: [
+    { id: 'hba1c', name: 'HbA1c', unit: '%', range: '<5.7', min: 0, max: 5.7 },
+    { id: 'eag', name: 'Estimated Avg Glucose', unit: 'mg/dL', range: '<117', min: 0, max: 117 }
+  ]},
+  'Blood Sugar (Fasting)': { category: 'Biochemistry', parameters: [{ id: 'fbs', name: 'Fasting Blood Sugar', unit: 'mg/dL', range: '70-100', min: 70, max: 100 }]},
+  'Blood Sugar (PP)': { category: 'Biochemistry', parameters: [{ id: 'ppbs', name: 'Post Prandial Blood Sugar', unit: 'mg/dL', range: '<140', min: 0, max: 140 }]},
+  'Blood Sugar (Random)': { category: 'Biochemistry', parameters: [{ id: 'rbs', name: 'Random Blood Sugar', unit: 'mg/dL', range: '70-140', min: 70, max: 140 }]},
+  'Urine Routine & Microscopy': { category: 'Pathology', parameters: [
+    { id: 'u_color', name: 'Color', unit: '', range: 'Pale Yellow', min: 0, max: 1 },
+    { id: 'u_appear', name: 'Appearance', unit: '', range: 'Clear', min: 0, max: 1 },
+    { id: 'u_ph', name: 'pH', unit: '', range: '5.0-7.0', min: 5.0, max: 7.0 },
+    { id: 'u_sg', name: 'Specific Gravity', unit: '', range: '1.010-1.025', min: 1.010, max: 1.025 },
+    { id: 'u_prot', name: 'Protein', unit: '', range: 'Nil', min: 0, max: 0 },
+    { id: 'u_gluc', name: 'Glucose', unit: '', range: 'Nil', min: 0, max: 0 }
+  ]},
+  'ESR (Erythrocyte Sedimentation Rate)': { category: 'Haematology', parameters: [{ id: 'esr', name: 'ESR', unit: 'mm/hr', range: '0-20', min: 0, max: 20 }]},
+  'Serum Electrolytes': { category: 'Biochemistry', parameters: [
+    { id: 'na', name: 'Sodium (Na+)', unit: 'mEq/L', range: '135-145', min: 135, max: 145 },
+    { id: 'k', name: 'Potassium (K+)', unit: 'mEq/L', range: '3.5-5.0', min: 3.5, max: 5.0 },
+    { id: 'cl', name: 'Chloride (Cl-)', unit: 'mEq/L', range: '96-106', min: 96, max: 106 },
+    { id: 'bicarb', name: 'Bicarbonate', unit: 'mEq/L', range: '22-28', min: 22, max: 28 }
+  ]},
+  'Cardiac Enzymes': { category: 'Cardiology', parameters: [
+    { id: 'trop_i', name: 'Troponin I', unit: 'ng/mL', range: '<0.04', min: 0, max: 0.04 },
+    { id: 'trop_t', name: 'Troponin T', unit: 'ng/mL', range: '<0.01', min: 0, max: 0.01 },
+    { id: 'cpk', name: 'CPK Total', unit: 'U/L', range: '30-200', min: 30, max: 200 },
+    { id: 'cpk_mb', name: 'CPK-MB', unit: 'U/L', range: '<25', min: 0, max: 25 },
+    { id: 'ldh', name: 'LDH', unit: 'U/L', range: '140-280', min: 140, max: 280 }
+  ]},
+  'Vitamin D (25-OH)': { category: 'Pathology', parameters: [{ id: 'vit_d', name: 'Vitamin D', unit: 'ng/mL', range: '30-100', min: 30, max: 100 }]},
+  'Vitamin B12': { category: 'Pathology', parameters: [{ id: 'vit_b12', name: 'Vitamin B12', unit: 'pg/mL', range: '200-900', min: 200, max: 900 }]},
+  'Serum Iron Studies': { category: 'Biochemistry', parameters: [
+    { id: 'iron', name: 'Serum Iron', unit: 'ug/dL', range: '60-170', min: 60, max: 170 },
+    { id: 'tibc', name: 'TIBC', unit: 'ug/dL', range: '250-450', min: 250, max: 450 },
+    { id: 'ferritin', name: 'Ferritin', unit: 'ng/mL', range: '30-400', min: 30, max: 400 }
+  ]},
+  'Serum Calcium': { category: 'Biochemistry', parameters: [{ id: 'ca', name: 'Calcium', unit: 'mg/dL', range: '8.5-10.5', min: 8.5, max: 10.5 }]},
+  'Serum Magnesium': { category: 'Biochemistry', parameters: [{ id: 'mg', name: 'Magnesium', unit: 'mg/dL', range: '1.7-2.2', min: 1.7, max: 2.2 }]},
+  'Serum Phosphorus': { category: 'Biochemistry', parameters: [{ id: 'phos', name: 'Phosphorus', unit: 'mg/dL', range: '2.5-4.5', min: 2.5, max: 4.5 }]},
+  'C-Reactive Protein (CRP)': { category: 'Immunology', parameters: [{ id: 'crp', name: 'CRP', unit: 'mg/L', range: '<6', min: 0, max: 6 }]},
+  'RA Factor (Rheumatoid Arthritis)': { category: 'Immunology', parameters: [{ id: 'ra', name: 'RA Factor', unit: 'IU/mL', range: '<20', min: 0, max: 20 }]},
+  'ASO Titre': { category: 'Immunology', parameters: [{ id: 'aso', name: 'ASO Titre', unit: 'IU/mL', range: '<200', min: 0, max: 200 }]},
+  'Widal Test': { category: 'Microbiology', parameters: [
+    { id: 'to', name: 'Typhi O', unit: '', range: '<1:80', min: 0, max: 80 },
+    { id: 'th', name: 'Typhi H', unit: '', range: '<1:80', min: 0, max: 80 }
+  ]},
+  'Dengue NS1 Antigen': { category: 'Microbiology', parameters: [{ id: 'ns1', name: 'NS1 Antigen', unit: '', range: 'Negative', min: 0, max: 0 }]},
+  'Dengue IgG/IgM': { category: 'Microbiology', parameters: [
+    { id: 'den_igg', name: 'Dengue IgG', unit: '', range: 'Negative', min: 0, max: 0 },
+    { id: 'den_igm', name: 'Dengue IgM', unit: '', range: 'Negative', min: 0, max: 0 }
+  ]},
+  'Malaria Antigen (Pf/Pv)': { category: 'Microbiology', parameters: [
+    { id: 'mal_pf', name: 'P. falciparum', unit: '', range: 'Negative', min: 0, max: 0 },
+    { id: 'mal_pv', name: 'P. vivax', unit: '', range: 'Negative', min: 0, max: 0 }
+  ]},
+  'HIV 1 & 2 (ELISA)': { category: 'Microbiology', parameters: [{ id: 'hiv', name: 'HIV 1 & 2', unit: '', range: 'Non-Reactive', min: 0, max: 0 }]},
+  'HBsAg (Hepatitis B Surface Antigen)': { category: 'Microbiology', parameters: [{ id: 'hbsag', name: 'HBsAg', unit: '', range: 'Non-Reactive', min: 0, max: 0 }]},
+  'Anti HCV (Hepatitis C)': { category: 'Microbiology', parameters: [{ id: 'hcv', name: 'Anti HCV', unit: '', range: 'Non-Reactive', min: 0, max: 0 }]},
+  'VDRL (Syphilis)': { category: 'Microbiology', parameters: [{ id: 'vdrl', name: 'VDRL', unit: '', range: 'Non-Reactive', min: 0, max: 0 }]},
+  'Prothrombin Time (PT/INR)': { category: 'Haematology', parameters: [
+    { id: 'pt', name: 'PT', unit: 'sec', range: '11-13.5', min: 11, max: 13.5 },
+    { id: 'inr', name: 'INR', unit: '', range: '0.8-1.2', min: 0.8, max: 1.2 }
+  ]},
+  'APTT (Activated Partial Thromboplastin Time)': { category: 'Haematology', parameters: [{ id: 'aptt', name: 'APTT', unit: 'sec', range: '25-35', min: 25, max: 35 }]},
+  'D-Dimer': { category: 'Haematology', parameters: [{ id: 'ddimer', name: 'D-Dimer', unit: 'ng/mL', range: '<500', min: 0, max: 500 }]},
+  'Serum Amylase': { category: 'Biochemistry', parameters: [{ id: 'amylase', name: 'Amylase', unit: 'U/L', range: '30-110', min: 30, max: 110 }]},
+  'Serum Lipase': { category: 'Biochemistry', parameters: [{ id: 'lipase', name: 'Lipase', unit: 'U/L', range: '13-60', min: 13, max: 60 }]},
+  'Stool Routine & Microscopy': { category: 'Pathology', parameters: [
+    { id: 's_color', name: 'Color', unit: '', range: 'Brown', min: 0, max: 1 },
+    { id: 's_consist', name: 'Consistency', unit: '', range: 'Formed', min: 0, max: 1 },
+    { id: 's_blood', name: 'Blood', unit: '', range: 'Absent', min: 0, max: 0 },
+    { id: 's_mucus', name: 'Mucus', unit: '', range: 'Absent', min: 0, max: 0 }
+  ]},
+  'Semen Analysis': { category: 'Pathology', parameters: [
+    { id: 'sem_vol', name: 'Volume', unit: 'mL', range: '1.5-5.0', min: 1.5, max: 5.0 },
+    { id: 'sem_count', name: 'Sperm Count', unit: 'million/mL', range: '>15', min: 15, max: 200 },
+    { id: 'sem_motil', name: 'Motility', unit: '%', range: '>40', min: 40, max: 100 }
+  ]},
+  'PSA (Prostate Specific Antigen)': { category: 'Pathology', parameters: [{ id: 'psa', name: 'PSA Total', unit: 'ng/mL', range: '<4.0', min: 0, max: 4.0 }]},
+  'CEA (Carcinoembryonic Antigen)': { category: 'Pathology', parameters: [{ id: 'cea', name: 'CEA', unit: 'ng/mL', range: '<3.0', min: 0, max: 3.0 }]},
+  'CA 125 (Cancer Antigen)': { category: 'Pathology', parameters: [{ id: 'ca125', name: 'CA 125', unit: 'U/mL', range: '<35', min: 0, max: 35 }]},
+  'CA 19-9': { category: 'Pathology', parameters: [{ id: 'ca199', name: 'CA 19-9', unit: 'U/mL', range: '<37', min: 0, max: 37 }]},
+  'AFP (Alpha Fetoprotein)': { category: 'Pathology', parameters: [{ id: 'afp', name: 'AFP', unit: 'ng/mL', range: '<10', min: 0, max: 10 }]},
+  'Beta HCG (Pregnancy Test)': { category: 'Pathology', parameters: [{ id: 'bhcg', name: 'Beta HCG', unit: 'mIU/mL', range: '<5', min: 0, max: 5 }]},
+  'Serum Cortisol': { category: 'Pathology', parameters: [{ id: 'cortisol', name: 'Cortisol', unit: 'ug/dL', range: '5-25', min: 5, max: 25 }]},
+  'Serum Testosterone': { category: 'Pathology', parameters: [{ id: 'testo', name: 'Testosterone', unit: 'ng/dL', range: '300-1000', min: 300, max: 1000 }]},
+  'Serum Prolactin': { category: 'Pathology', parameters: [{ id: 'prolactin', name: 'Prolactin', unit: 'ng/mL', range: '4-15', min: 4, max: 15 }]},
+  'LH (Luteinizing Hormone)': { category: 'Pathology', parameters: [{ id: 'lh', name: 'LH', unit: 'mIU/mL', range: '1.5-9.0', min: 1.5, max: 9.0 }]},
+  'FSH (Follicle Stimulating Hormone)': { category: 'Pathology', parameters: [{ id: 'fsh', name: 'FSH', unit: 'mIU/mL', range: '1.5-12.0', min: 1.5, max: 12.0 }]},
+  'G6PD (Glucose-6-Phosphate Dehydrogenase)': { category: 'Haematology', parameters: [{ id: 'g6pd', name: 'G6PD', unit: 'U/g Hb', range: '7-20', min: 7, max: 20 }]},
+  'Serum Ammonia': { category: 'Biochemistry', parameters: [{ id: 'ammonia', name: 'Ammonia', unit: 'umol/L', range: '15-45', min: 15, max: 45 }]},
+  'Blood Culture & Sensitivity': { category: 'Microbiology', parameters: [{ id: 'bc_growth', name: 'Growth', unit: '', range: 'No Growth', min: 0, max: 0 }]},
+  'Urine Culture & Sensitivity': { category: 'Microbiology', parameters: [{ id: 'uc_growth', name: 'Growth', unit: '', range: 'No Growth', min: 0, max: 0 }]},
+  'Mantoux Test (TB Skin Test)': { category: 'Microbiology', parameters: [{ id: 'mantoux', name: 'Induration', unit: 'mm', range: '<10', min: 0, max: 10 }]},
+  'Arterial Blood Gas (ABG)': { category: 'Biochemistry', parameters: [
+    { id: 'ph', name: 'pH', unit: '', range: '7.35-7.45', min: 7.35, max: 7.45 },
+    { id: 'pco2', name: 'pCO2', unit: 'mmHg', range: '35-45', min: 35, max: 45 },
+    { id: 'po2', name: 'pO2', unit: 'mmHg', range: '80-100', min: 80, max: 100 },
+    { id: 'hco3', name: 'HCO3', unit: 'mEq/L', range: '22-26', min: 22, max: 26 }
+  ]}
+}
 
 const STATUS_STYLES = {
   'Pending':     { bg: 'var(--gray-100)',            color: 'var(--gray-600)',  label: 'Pending Collection' },
@@ -79,6 +227,12 @@ function NewLabModal({ onClose, onSave, patients, doctors }) {
     catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
+  const handleTestChange = (e) => {
+    const t = e.target.value
+    h('test_name', t)
+    if (LAB_TEST_CATALOG[t]) h('category', LAB_TEST_CATALOG[t].category)
+  }
+
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal modal-lg">
@@ -108,7 +262,10 @@ function NewLabModal({ onClose, onSave, patients, doctors }) {
             </div>
             <div className="form-group">
               <label className="form-label">Test Name*</label>
-              <input className="form-input" placeholder="e.g. CBC, LFT, Troponin I" value={form.test_name} onChange={e => h('test_name', e.target.value)} />
+              <select className="form-input form-select" value={form.test_name} onChange={handleTestChange}>
+                <option value="">Select Indian lab test...</option>
+                {Object.keys(LAB_TEST_CATALOG).map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
             </div>
             <div className="form-group">
               <label className="form-label">Category</label>
@@ -137,13 +294,139 @@ function NewLabModal({ onClose, onSave, patients, doctors }) {
 }
 
 // ─── Result Side Panel ────────────────────────────────────────────────────────
+// ─── Result Side Panel ────────────────────────────────────────────────────────
 function ResultPanel({ order, onClose, onUpdated }) {
+  const [results, setResults] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [emailing, setEmailing] = useState(false)
+  const isCompleted = order.status === 'Completed'
+  const testConfig = LAB_TEST_CATALOG[order.test_name] || null
+
+  useEffect(() => {
+    if (order.result_notes && isCompleted) {
+       try { setResults(JSON.parse(order.result_notes)) } catch(e) { /* fallback if strict text */ }
+    }
+  }, [order, isCompleted])
+
+  const generatePDF = (orderData, resObj, download = true) => {
+    try {
+      if (!testConfig) { alert('Test standard configuration not found for auto-pdf generation.'); return; }
+      const doc = new jsPDF()
+      doc.setFontSize(20)
+      doc.setTextColor(30, 58, 138)
+      doc.setFont('helvetica', 'bold')
+      doc.text('LABORATORY REPORT', 105, 20, { align: 'center' })
+      
+      doc.setDrawColor(200, 200, 200)
+      doc.line(15, 25, 195, 25)
+
+      doc.setFontSize(10)
+      doc.setTextColor(60, 60, 60)
+      doc.setFont('helvetica', 'normal')
+      doc.text(`Patient Name: ${orderData.patient_name || 'N/A'}`, 15, 35)
+      doc.text(`Patient ID: ${orderData.patient_code || 'N/A'}`, 15, 42)
+      doc.text(`Requested By: ${orderData.requested_by || 'Self Referal'}`, 130, 35)
+      doc.text(`Report Date: ${new Date().toLocaleString('en-IN')}`, 130, 42)
+      
+      doc.setFontSize(12)
+      doc.setTextColor(20, 20, 20)
+      doc.setFont('helvetica', 'bold')
+      doc.text(`Investigation: ${orderData.test_name}`, 15, 55)
+
+      const tableData = testConfig.parameters.map(p => {
+        const val = resObj[p.id] || ''
+        const numVal = parseFloat(val)
+        let flag = ''
+        if (!isNaN(numVal)) {
+          if (numVal < p.min) flag = 'LOW'
+          else if (numVal > p.max) flag = 'HIGH'
+        }
+        return [p.name, val, flag, p.unit, p.range]
+      })
+
+      autoTable(doc, {
+        startY: 60,
+        head: [['Parameter', 'Result', 'Flag', 'Unit', 'Bio. Reference']],
+        body: tableData,
+        theme: 'grid',
+        headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: 'bold' },
+        styles: { fontSize: 9 },
+        didDrawCell: function (data) {
+          if (data.column.index === 2 && data.cell.text[0]) {
+             if (data.cell.text[0] === 'HIGH') data.cell.styles.textColor = [220, 38, 38]
+             else if (data.cell.text[0] === 'LOW') data.cell.styles.textColor = [180, 83, 9]
+             data.cell.styles.fontStyle = 'bold'
+          }
+        }
+      })
+
+      const finalY = doc.lastAutoTable.finalY || 100
+      doc.setFontSize(10)
+      doc.setTextColor(100)
+      doc.setFont('helvetica', 'normal')
+      doc.text('*** End of Report ***', 105, finalY + 15, { align: 'center' })
+      doc.text('Lab In-charge Signature', 170, finalY + 30, { align: 'center' })
+      
+      const patientName = orderData.patient_name || orderData.patient_id || 'Patient'
+      if (download && typeof doc.save === 'function') {
+        doc.save(`${patientName.replace(/[^a-z0-9]/gi, '_')}_${orderData.test_name.replace(/[^a-z0-9]/gi, '_')}.pdf`)
+      }
+      return doc
+    } catch (err) {
+      console.error('PDF Generation Error:', err)
+      alert('Could not generate PDF: ' + err.message)
+    }
+  }
+
+  const handleSendEmail = async () => {
+    const email = order.patient_email || prompt('Enter patient email:', '')
+    if (!email) return
+
+    setEmailing(true)
+    try {
+      const doc = generatePDF(order, results, false)
+      if (!doc) throw new Error('PDF Generation failed')
+      
+      const pdfBlob = doc.output('blob')
+      const formData = new FormData()
+      formData.append('report_pdf', pdfBlob)
+      formData.append('email', email)
+      formData.append('patient_name', order.patient_name)
+      formData.append('test_name', order.test_name)
+
+      await api.sendLabEmail(order.id, formData)
+      alert('Report sent successfully to ' + email)
+    } catch (e) {
+      console.error(e)
+      alert('Error sending email: ' + e.message)
+    } finally {
+      setEmailing(false)
+    }
+  }
+
+  const handleSaveResults = async () => {
+    setSaving(true)
+    try {
+      const jsonStr = JSON.stringify(results)
+      const updated = await api.updateLab(order.id, { result_notes: jsonStr, status: 'Completed', completed_at: new Date().toISOString() })
+      // Merge with old order to keep patient_name and other join data
+      const merged = { ...order, ...updated, result_notes: jsonStr, status: 'Completed' }
+      onUpdated(merged)
+      generatePDF(merged, results)
+      onClose()
+    } catch (e) {
+      alert('Error updating lab: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 100, display: 'flex', justifyContent: 'flex-end' }} onClick={onClose}>
-      <div style={{ width: 480, background: '#fff', height: '100%', overflow: 'auto', boxShadow: 'var(--shadow-2xl)', padding: '2rem', animation: 'slideInLeft 250ms ease' }} onClick={e => e.stopPropagation()}>
+      <div style={{ width: 520, background: '#fff', height: '100%', overflow: 'auto', boxShadow: 'var(--shadow-2xl)', padding: '2rem', animation: 'slideInLeft 250ms ease' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
           <div>
-            <h4 style={{ color: 'var(--gray-900)', fontWeight: 700 }}>Lab Order Details</h4>
+            <h4 style={{ color: 'var(--gray-900)', fontWeight: 700 }}>Lab Results Entry</h4>
             <p style={{ fontSize: '0.8rem', color: 'var(--gray-400)' }}>#{order.id} · {order.ordered_at ? new Date(order.ordered_at).toLocaleDateString('en-IN') : '—'}</p>
           </div>
           <button className="btn btn-ghost btn-icon" onClick={onClose}><X size={18} /></button>
@@ -154,32 +437,97 @@ function ResultPanel({ order, onClose, onUpdated }) {
           <div style={{ fontSize: '0.8rem', color: 'var(--gray-500)' }}>{order.patient_code} · {order.requested_by}</div>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', marginBottom: '1.5rem' }}>
-          {[
-            ['Test Name',    order.test_name],
-            ['Category',     order.category],
-            ['Priority',     order.priority],
-            ['Status',       order.status],
-            ['Ordered At',   order.ordered_at   ? new Date(order.ordered_at).toLocaleString('en-IN')   : '—'],
-            ['Completed At', order.completed_at ? new Date(order.completed_at).toLocaleString('en-IN') : 'Pending'],
-          ].map(([label, val]) => (
-            <div key={label} style={{ padding: '0.625rem 0', borderBottom: '1px solid var(--gray-100)', display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
-              <span style={{ width: 120, fontSize: '0.8rem', color: 'var(--gray-400)', fontWeight: 600, flexShrink: 0 }}>{label}</span>
-              <span style={{ fontSize: '0.875rem', color: 'var(--gray-700)', fontWeight: 500 }}>{val || '—'}</span>
-            </div>
-          ))}
-          {order.result_notes && (
-            <div style={{ padding: '0.875rem', background: 'rgba(16,185,129,0.06)', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(16,185,129,0.2)' }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#059669', marginBottom: '0.375rem' }}>Result Notes</div>
-              <div style={{ fontSize: '0.875rem', color: 'var(--gray-700)' }}>{order.result_notes}</div>
-            </div>
-          )}
-        </div>
+        {testConfig ? (
+          <div style={{ marginBottom: '1.5rem' }}>
+            <h5 style={{ fontWeight: 700, margin: '0 0 1rem', color: 'var(--primary-700)' }}>{order.test_name}</h5>
+            <table className="data-table" style={{ border: '1px solid var(--gray-200)', borderRadius: 'var(--radius-lg)' }}>
+              <thead style={{ background: 'var(--gray-100)' }}>
+                <tr>
+                  <th style={{ fontSize: '0.75rem' }}>Parameter</th>
+                  <th style={{ fontSize: '0.75rem' }}>Result</th>
+                  <th style={{ fontSize: '0.75rem' }}>Range / Unit</th>
+                </tr>
+              </thead>
+              <tbody>
+                {testConfig.parameters.map(p => (
+                  <tr key={p.id}>
+                    <td style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--gray-700)' }}>{p.name}</td>
+                    <td style={{ padding: '0.5rem' }}>
+                      <input 
+                        className="form-input" 
+                        style={{ padding: '0.4rem', fontSize: '0.8rem', minWidth: 80 }}
+                        type="number" 
+                        step="0.01"
+                        placeholder="Eg. 4.5"
+                        value={results[p.id] || ''}
+                        disabled={isCompleted}
+                        onChange={e => setResults(r => ({ ...r, [p.id]: e.target.value }))}
+                      />
+                    </td>
+                    <td style={{ fontSize: '0.75rem', color: 'var(--gray-500)' }}>
+                      <div>{p.range}</div>
+                      <div style={{ fontSize: '0.65rem' }}>{p.unit}</div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {!isCompleted && (
+              <button 
+                className="btn btn-primary" 
+                style={{ width: '100%', marginTop: '1.5rem', justifyContent: 'center' }}
+                onClick={handleSaveResults}
+                disabled={saving}
+              >
+                {saving ? <Loader size={14} className="spin"/> : <FileText size={14}/>} 
+                Save & Generate PDF Report
+              </button>
+            )}
+            {isCompleted && (
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.5rem' }}>
+                <button className="btn btn-secondary w-full" style={{ justifyContent: 'center' }} onClick={() => generatePDF(order, results)}>
+                  <Download size={14} /> Download PDF
+                </button>
+                <button 
+                  className="btn btn-primary w-full" 
+                  style={{ justifyContent: 'center', background: '#3b82f6', borderColor: '#3b82f6' }} 
+                  onClick={handleSendEmail}
+                  disabled={emailing}
+                >
+                  {emailing ? <Loader size={14} className="spin" /> : <Mail size={14} />} Send Email
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', marginBottom: '1.5rem' }}>
+            {[
+              ['Test Name',    order.test_name],
+              ['Category',     order.category],
+              ['Priority',     order.priority],
+              ['Status',       order.status],
+              ['Ordered At',   order.ordered_at   ? new Date(order.ordered_at).toLocaleString('en-IN')   : '—'],
+              ['Completed At', order.completed_at ? new Date(order.completed_at).toLocaleString('en-IN') : 'Pending'],
+            ].map(([label, val]) => (
+              <div key={label} style={{ padding: '0.625rem 0', borderBottom: '1px solid var(--gray-100)', display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
+                <span style={{ width: 120, fontSize: '0.8rem', color: 'var(--gray-400)', fontWeight: 600, flexShrink: 0 }}>{label}</span>
+                <span style={{ fontSize: '0.875rem', color: 'var(--gray-700)', fontWeight: 500 }}>{val || '—'}</span>
+              </div>
+            ))}
+            {order.result_notes && (
+              <div style={{ padding: '0.875rem', background: 'rgba(16,185,129,0.06)', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(16,185,129,0.2)' }}>
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#059669', marginBottom: '0.375rem' }}>Result Notes</div>
+                <div style={{ fontSize: '0.875rem', color: 'var(--gray-700)' }}>{order.result_notes}</div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* PDF Upload Section */}
         <div style={{ borderTop: '1px solid var(--gray-100)', paddingTop: '1.25rem' }}>
           <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--gray-700)', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <FileText size={14} /> Result PDF
+            <FileText size={14} /> Manual / External PDF Upload
           </div>
           <PdfUploadBtn
             orderId={order.id}
@@ -190,7 +538,7 @@ function ResultPanel({ order, onClose, onUpdated }) {
         </div>
 
         <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
-          <button className="btn btn-secondary w-full" onClick={onClose}>Close</button>
+          <button className="btn btn-ghost w-full" style={{ border: '1px solid var(--gray-200)' }} onClick={onClose}>Close Panel</button>
         </div>
       </div>
     </div>

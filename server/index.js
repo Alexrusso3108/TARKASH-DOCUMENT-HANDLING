@@ -8,6 +8,7 @@ import authRouter, { setPool as setAuthPool, requireAuth } from './auth.js'
 import multer from 'multer'
 import path from 'path'
 import fs from 'fs'
+import { sendEmail } from './email.js'
 import { fileURLToPath } from 'url'
 // Built-in lightweight PDF text extractor (no npm package needed)
 function extractTextFromPdf(buffer) {
@@ -98,6 +99,10 @@ async function initDB() {
       `DO $m$ BEGIN ALTER TABLE doctors ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
       `DO $m$ BEGIN ALTER TABLE beds ADD COLUMN hospital_id INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
       `DO $m$ BEGIN ALTER TABLE opd_visits ADD COLUMN hospital_id INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
+      `ALTER TABLE beds ADD COLUMN IF NOT EXISTS discharge_step INTEGER DEFAULT 0`,
+      `ALTER TABLE beds ADD COLUMN IF NOT EXISTS discharge_status VARCHAR(50) DEFAULT 'Admitted'`,
+      `ALTER TABLE beds ADD COLUMN IF NOT EXISTS discharge_notes TEXT`,
+      `DO $m$ BEGIN ALTER TABLE hospitals ADD COLUMN logo TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
       `DO $m$ BEGIN ALTER TABLE clinical_notes ADD COLUMN hospital_id INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
       `DO $m$ BEGIN ALTER TABLE lab_tests ADD COLUMN hospital_id INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
       `DO $m$ BEGIN ALTER TABLE pharmacy_inventory ADD COLUMN hospital_id INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
@@ -477,18 +482,42 @@ app.get('/api/opd', requireAuth, async (req, res) => {
 })
 
 app.post('/api/opd', requireAuth, async (req, res) => {
+  const client = await pool.connect()
   try {
-    const { patient_id, doctor_id, department, visit_type, symptoms, fee } = req.body
+    const { patient_id, doctor_id, department, visit_type, symptoms, fee, is_walkin, patient_name, age, gender, phone } = req.body
     const hid = req.user.hospitalId
-    const { rows: count } = await pool.query(`SELECT COUNT(*) FROM opd_visits WHERE visit_date = CURRENT_DATE AND hospital_id = $1`, [hid])
+
+    await client.query('BEGIN')
+    let pid = patient_id
+
+    if (is_walkin) {
+      const { rows: last } = await client.query(`SELECT id FROM patients ORDER BY created_at DESC LIMIT 1`)
+      const lastNum = last.length ? parseInt(last[0].id.replace('P-', '')) : 4800
+      const newId = `P-${lastNum + 1}`
+      const { rows: [p] } = await client.query(
+        `INSERT INTO patients (id,hospital_id,name,age,gender,department,doctor_id,phone,status,admission_type)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'OPD','Walk-In') RETURNING id`,
+        [newId, hid, patient_name, age || null, gender || 'Other', department, doctor_id, phone || null]
+      )
+      pid = p.id
+    }
+
+    const { rows: count } = await client.query(`SELECT COUNT(*) FROM opd_visits WHERE visit_date = CURRENT_DATE AND hospital_id = $1`, [hid])
     const token = `T-${String(parseInt(count[0].count) + 1).padStart(3, '0')}`
-    const { rows } = await pool.query(
+    const { rows } = await client.query(
       `INSERT INTO opd_visits (hospital_id,patient_id,doctor_id,token,department,visit_type,symptoms,fee)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [hid, patient_id, doctor_id, token, department, visit_type, symptoms, fee || 0]
+      [hid, pid, doctor_id, token, department, visit_type, symptoms, fee || 0]
     )
+
+    await client.query('COMMIT')
     res.status(201).json(rows[0])
-  } catch (e) { res.status(500).json({ error: e.message }) }
+  } catch (e) {
+    await client.query('ROLLBACK')
+    res.status(500).json({ error: e.message })
+  } finally {
+    client.release()
+  }
 })
 
 app.patch('/api/opd/:id', requireAuth, async (req, res) => {
@@ -577,7 +606,7 @@ app.get('/api/lab', requireAuth, async (req, res) => {
     const { status = 'All', priority = 'All', search = '' } = req.query
     const hid = req.user.hospitalId
     let query = `
-      SELECT l.*, p.name AS patient_name, p.id AS patient_code
+      SELECT l.*, p.name AS patient_name, p.id AS patient_code, p.email AS patient_email
       FROM lab_tests l
       LEFT JOIN patients p ON l.patient_id = p.id
       WHERE l.hospital_id = $1`
@@ -629,6 +658,46 @@ app.post('/api/lab/:id/upload-result', requireAuth, upload.single('result_pdf'),
     res.json(rows[0])
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
+
+// Send lab result via Email
+app.post('/api/lab/:id/email-result', requireAuth, upload.single('report_pdf'), async (req, res) => {
+  try {
+    const { email, patient_name, test_name } = req.body;
+    if (!req.file) return res.status(400).json({ error: 'No PDF file attached' });
+
+    await sendEmail({
+      to: email,
+      subject: `Laboratory Report - ${test_name} - ${patient_name}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
+          <h2 style="color: #4f46e5;">Medical Report Ready</h2>
+          <p>Dear ${patient_name},</p>
+          <p>Your laboratory report for <b>${test_name}</b> is ready and attached to this email.</p>
+          <p>Please find the PDF document attached for your records.</p>
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
+          <p style="font-size: 0.8em; color: #666;">Wishing you good health,<br/><b>Laboratory Department</b></p>
+        </div>
+      `,
+      attachments: [
+        {
+          filename: `${patient_name.replace(/\\s+/g, '_')}_${test_name.replace(/\\s+/g, '_')}.pdf`,
+          path: req.file.path,
+          contentType: 'application/pdf'
+        }
+      ]
+    });
+
+    // Clean up temporary file after sending
+    fs.unlink(req.file.path, (err) => {
+      if (err) console.error('Error deleting temp email file:', err);
+    });
+
+    res.json({ success: true, message: 'Email sent successfully' });
+  } catch (e) {
+    console.error('Email endpoint error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // ─────────────────────────────────────────────────────────────
 // RADIOLOGY
@@ -814,8 +883,65 @@ app.get('/api/discharge-summaries/:id', requireAuth, async (req, res) => {
 })
 
 // ─────────────────────────────────────────────────────────────
+// DISCHARGE WORKFLOW (IPD)
+// ─────────────────────────────────────────────────────────────
+
+app.patch('/api/beds/:id/discharge', requireAuth, async (req, res) => {
+  try {
+    const { step, status, notes } = req.body
+    const hid = req.user.hospitalId
+    const { rows } = await pool.query(
+      `UPDATE beds SET discharge_step = COALESCE($2, discharge_step), 
+                      discharge_status = COALESCE($3, discharge_status),
+                      discharge_notes = COALESCE($4, discharge_notes)
+       WHERE id = $1 AND hospital_id = $5 RETURNING *`,
+      [req.params.id, step, status, notes, hid]
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Bed not found' })
+    
+    // If step is final (e.g. 5), we might want to actually discharge the patient record-wise
+    // but for now we just track the workflow.
+    
+    res.json(rows[0])
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// ─────────────────────────────────────────────────────────────
 // PHARMACY
 // ─────────────────────────────────────────────────────────────
+
+app.post('/api/pharmacy/sale', requireAuth, async (req, res) => {
+  const client = await pool.connect()
+  try {
+    const { items, patient_id, total_amount } = req.body
+    await client.query('BEGIN')
+    
+    for (const item of items) {
+      const { rows } = await client.query(
+        `UPDATE pharmacy_inventory SET stock = stock - $1 
+         WHERE id = $2 AND stock >= $1 AND hospital_id = $3 RETURNING name`,
+        [item.qty, item.id, req.user.hospitalId]
+      )
+      if (!rows.length) throw new Error(`Insufficient stock for ${item.name}`)
+    }
+
+    if (patient_id) {
+       await client.query(
+         `INSERT INTO billing (id, hospital_id, patient_id, total_amount, status, type, payment_method)
+          VALUES ($1, $2, $3, $4, 'Paid', 'Pharmacy', 'Cash')`,
+         [`INV-PH-${Date.now().toString().slice(-6)}`, req.user.hospitalId, patient_id, total_amount]
+       )
+    }
+
+    await client.query('COMMIT')
+    res.json({ success: true })
+  } catch (e) {
+    await client.query('ROLLBACK')
+    res.status(500).json({ error: e.message })
+  } finally {
+    client.release()
+  }
+})
 
 app.get('/api/pharmacy', requireAuth, async (req, res) => {
   try {

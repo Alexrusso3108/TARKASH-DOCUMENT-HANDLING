@@ -4,7 +4,7 @@ export const BASE_URL = import.meta.env.PROD ? '/api' : 'http://localhost:5000/a
 export const SERVER_URL = import.meta.env.PROD ? '' : 'http://localhost:5000'
 
 function getToken() {
-  return localStorage.getItem('dscribe_token')
+  return localStorage.getItem('swasthyasync_token')
 }
 
 async function request(method, path, body) {
@@ -62,6 +62,7 @@ export const api = {
   createBed: (data) => request('POST', '/beds', data),
   updateBed: (id, data) => request('PATCH', `/beds/${id}`, data),
   assignBed: (id, data) => request('PATCH', `/beds/${id}`, data),
+  updateDischargeStep: (id, data) => request('PATCH', `/beds/${id}/discharge`, data),
   releaseBed: (id) => request('PATCH', `/beds/${id}`, { status: 'available', patient_id: null, doctor_id: null, diagnosis: null, has_alert: false }),
   deleteBed: (id) => request('DELETE', `/beds/${id}`),
 
@@ -79,7 +80,8 @@ export const api = {
   getLab: (params = {}) => request('GET', `/lab?${new URLSearchParams(params)}`),
   createLab: (data) => request('POST', '/lab', data),
   updateLab: (id, data) => request('PATCH', `/lab/${id}`, data),
-  uploadLabResult: (id, file) => uploadPdf(`/lab/${id}/upload-result`, file),
+  uploadLabPDF: (id, formData) => request('POST', `/lab/${id}/upload-result`, formData, true),
+  sendLabEmail: (id, formData) => request('POST', `/lab/${id}/email-result`, formData, true),
 
   // Radiology
   getRadiology: (params = {}) => request('GET', `/radiology?${new URLSearchParams(params)}`),
@@ -91,6 +93,7 @@ export const api = {
   getPharmacy: (params = {}) => request('GET', `/pharmacy?${new URLSearchParams(params)}`),
   createPharmacy: (data) => request('POST', '/pharmacy', data),
   updatePharmacy: (id, data) => request('PATCH', `/pharmacy/${id}`, data),
+  processPharmacySale: (data) => request('POST', '/pharmacy/sale', data),
 
   // Billing
   getBilling: (params = {}) => request('GET', `/billing?${new URLSearchParams(params)}`),
