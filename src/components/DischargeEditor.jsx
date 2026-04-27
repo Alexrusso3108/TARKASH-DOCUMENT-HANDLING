@@ -5,11 +5,11 @@ import {
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight,
   Type, Printer, RotateCcw,
 } from 'lucide-react'
-import { SERVER_URL, BASE_URL } from '../api'
+import { SERVER_URL, BASE_URL, api } from '../api'
 
 // ─── Patient field substitution map ──────────────────────────────────────────
 const FIELD_ALIASES = [
-  { key: 'patient_name',      aliases: ['patient name', "patient's name", 'pt name', 'name of patient'] },
+  { key: 'patient_name',      aliases: ['patient name', "patient's name", 'pt name', 'name of patient', 'name'] },
   { key: 'age_gender',        aliases: ['age / gender', 'age/gender', 'age & gender', 'age-gender', 'age / sex'] },
   { key: 'age',               aliases: ['age'] },
   { key: 'gender',            aliases: ['gender', 'sex'] },
@@ -48,22 +48,112 @@ function buildValues(p) {
   }
 }
 
-// Smart substitution: replace "Label:" with "Label: <value>" in extracted text
-function substituteValues(text, values) {
-  let result = text
-  for (const fieldDef of FIELD_ALIASES) {
-    const val = values[fieldDef.key]
-    if (!val) continue
-    for (const alias of fieldDef.aliases) {
-      // Match "Label:" or "Label :" followed by optional whitespace (not followed by non-whitespace value)
-      const pattern = new RegExp(
-        `(${alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:)(\\s*)(?=[\\n\\r]|$|\\s{2,})`,
-        'gi'
-      )
-      result = result.replace(pattern, `$1 ${val}`)
+// Generate a beautiful, formal Indian Hospital Discharge Summary
+function generateFormalSummary(text, values, hospitalInfo = {}) {
+  // Strip out messy header text from PDF extraction
+  const lines = text.split('\n')
+  const cleanLines = []
+  
+  // Skip the first few lines that contain typical header labels 
+  // (we replace them with our clean HTML table)
+  const skipKeywords = ['DISCHARGE SUMMARY', 'Patient Name', 'Age', 'Gender', 'Reg No', 'UHID', 'Date of', 'Phone', 'Department', 'Consultant', 'Room', 'Bed', 'IP No']
+  
+  let headerPassed = false
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (!headerPassed && i < 20) {
+      const isHeaderGarbage = skipKeywords.some(k => line.toLowerCase().includes(k.toLowerCase()))
+      if (isHeaderGarbage || line.trim() === '') continue
+      else headerPassed = true // We hit the first clinical line
     }
+    cleanLines.push(line)
   }
-  return result
+
+  // Format the remaining text: make known section headings bold
+  const sectionHeadings = [
+    'Final Diagnosis', 'Diagnosis', 'Procedure Performed', 'Procedures',
+    'Chief Complaint', 'Chief Complaints', 'History Of Presenting Illness', 'History',
+    'Obstetric History', 'Obstetric', 'LMP', 'EDD', 'Past History', 'Clinical Examination',
+    'Systemic Examination', 'Investigations', 'Treatment Given', 'Hospital Course',
+    'Course in Hospital', 'Condition at Discharge', 'Advice on Discharge',
+    'Discharge Advice', 'Medications', 'Follow Up', 'Follow up'
+  ]
+
+  let formattedText = cleanLines.map(line => {
+    let fmt = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    
+    // Check if line starts with a known heading
+    for (const heading of sectionHeadings) {
+      const regex = new RegExp(`^(${heading}\\s*[:\\-]?\\s*)`, 'i')
+      if (regex.test(fmt)) {
+        fmt = fmt.replace(regex, '<strong>$1</strong>')
+        break
+      }
+    }
+    
+    // Interactive checkboxes
+    fmt = fmt.replace(/[□☐🞏]/g, () => `<span class="interactive-checkbox" contenteditable="false" data-checked="false" style="cursor: pointer; user-select: none; color: #4f46e5; font-size: 1.2em; display: inline-block; width: 1.2em; text-align: center;">&#9744;</span>`)
+    fmt = fmt.replace(/[☑]/g, () => `<span class="interactive-checkbox" contenteditable="false" data-checked="true" style="cursor: pointer; user-select: none; color: #4f46e5; font-size: 1.2em; display: inline-block; width: 1.2em; text-align: center;">&#9745;</span>`)
+    
+    return `<p style="margin-top: 0.5em; margin-bottom: 0.5em;">${fmt || '<br>'}</p>`
+  }).join('')
+
+  // Build the formal HTML header table
+  const logoHtml = hospitalInfo.report_logo 
+    ? `<img src="${SERVER_URL}${hospitalInfo.report_logo}" alt="Logo" style="max-height: 60px; max-width: 250px; object-fit: contain;" />`
+    : `<h1 style="margin: 0; font-size: 22px; color: #1e3a8a; font-weight: 800;">${hospitalInfo.name || 'HOSPITAL DISCHARGE SUMMARY'}</h1>`
+
+  const hospDetailsHtml = hospitalInfo.name
+    ? `<p style="margin: 4px 0 0; font-size: 11px; color: #555;">${hospitalInfo.address || ''} ${hospitalInfo.city ? '- ' + hospitalInfo.city : ''}<br/>${hospitalInfo.phone ? 'Phone: ' + hospitalInfo.phone : ''}</p>`
+    : ''
+
+  const html = `
+    <div style="font-family: Arial, sans-serif;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #1e293b; padding-bottom: 12px; margin-bottom: 20px;">
+        <div>
+          ${logoHtml}
+          ${hospDetailsHtml}
+        </div>
+        <div style="text-align: right; padding-top: 5px;">
+          <h2 style="margin: 0; font-size: 20px; font-weight: bold; letter-spacing: 1px; color: #1e293b;">DISCHARGE SUMMARY</h2>
+        </div>
+      </div>
+      
+      <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px; font-size: 10.5pt; border: 1.5px solid #000;">
+        <tbody>
+          <tr>
+            <td style="padding: 6px 10px; border: 1px solid #000; font-weight: bold; width: 18%; background: #f8f9fa;">Patient Name</td>
+            <td style="padding: 6px 10px; border: 1px solid #000; width: 32%;"><strong>${values.patient_name}</strong></td>
+            <td style="padding: 6px 10px; border: 1px solid #000; font-weight: bold; width: 18%; background: #f8f9fa;">UHID / IP No</td>
+            <td style="padding: 6px 10px; border: 1px solid #000; width: 32%;">${values.reg_no}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 10px; border: 1px solid #000; font-weight: bold; background: #f8f9fa;">Age / Gender</td>
+            <td style="padding: 6px 10px; border: 1px solid #000;">${values.age_gender}</td>
+            <td style="padding: 6px 10px; border: 1px solid #000; font-weight: bold; background: #f8f9fa;">Room / Bed</td>
+            <td style="padding: 6px 10px; border: 1px solid #000;">${values.room_bed}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 10px; border: 1px solid #000; font-weight: bold; background: #f8f9fa;">Date of Adm.</td>
+            <td style="padding: 6px 10px; border: 1px solid #000;">${values.date_of_admission}</td>
+            <td style="padding: 6px 10px; border: 1px solid #000; font-weight: bold; background: #f8f9fa;">Date of Disch.</td>
+            <td style="padding: 6px 10px; border: 1px solid #000;">${values.date_of_discharge}</td>
+          </tr>
+          <tr>
+            <td style="padding: 6px 10px; border: 1px solid #000; font-weight: bold; background: #f8f9fa;">Consultant</td>
+            <td style="padding: 6px 10px; border: 1px solid #000;"><strong>${values.consultant}</strong></td>
+            <td style="padding: 6px 10px; border: 1px solid #000; font-weight: bold; background: #f8f9fa;">Department</td>
+            <td style="padding: 6px 10px; border: 1px solid #000;">${values.department}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div style="font-size: 11pt; line-height: 1.6;">
+        ${formattedText}
+      </div>
+    </div>
+  `
+  return html
 }
 
 // ─── Extract text from PDF maintaining structure ──────────────────────────────
@@ -87,8 +177,8 @@ async function extractPdfText(pdfUrl) {
     for (const item of content.items) {
       if (!item.str?.trim()) continue
       const [, , , , , ty] = item.transform
-      // Round y to nearest 2pt to group items on the same line
-      const rowKey = Math.round((pageH - ty) / 2) * 2
+      // Round y to nearest 3pt to group items on the same line
+      const rowKey = Math.round((pageH - ty) / 3) * 3
       if (!rowMap.has(rowKey)) rowMap.set(rowKey, [])
       rowMap.get(rowKey).push({ text: item.str, x: item.transform[4] })
     }
@@ -96,7 +186,10 @@ async function extractPdfText(pdfUrl) {
     // Sort rows top-to-bottom, sort items within row left-to-right
     const sortedRows = [...rowMap.entries()]
       .sort((a, b) => a[0] - b[0])
-      .map(([, items]) => items.sort((a, b) => a.x - b.x).map(i => i.text).join('  '))
+      .map(([, items]) => {
+        items.sort((a, b) => a.x - b.x)
+        return items.map(i => i.text).join(' ')
+      })
 
     if (pageNum > 1) fullText += '\n\n'
     fullText += sortedRows.join('\n')
@@ -151,11 +244,14 @@ export default function DischargeEditor({ formInstance, patientData, onClose, on
       return
     }
 
-    extractPdfText(pdfUrl).then(text => {
+    extractPdfText(pdfUrl).then(async text => {
       if (cancelled) return
+      let hospitalInfo = {}
+      try { hospitalInfo = await api.getHospital() } catch(e) {}
+      
       const values = buildValues(patientData)
-      const substituted = substituteValues(text, values)
-      setContent(substituted)
+      const htmlContent = generateFormalSummary(text, values, hospitalInfo)
+      if (!cancelled) setContent(htmlContent)
     }).catch(e => {
       if (!cancelled) setError('Could not read PDF template: ' + e.message)
     }).finally(() => {
@@ -172,28 +268,10 @@ export default function DischargeEditor({ formInstance, patientData, onClose, on
       editorRef.current.innerHTML = '<p><br></p>'
       return
     }
-    // If content is already HTML (saved from a previous session), inject directly
-    if (content.trim().startsWith('<')) {
-      editorRef.current.innerHTML = content
-    } else {
-      // Convert plain text to HTML paragraphs
-      const html = content
-        .split('\n')
-        .map(line => {
-          const escaped = line
-            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-          
-          const withCheckboxes = escaped.replace(/[□☐🞏]/g, () => {
-             return `<span class="interactive-checkbox" contenteditable="false" data-checked="false" style="cursor: pointer; user-select: none; color: #4f46e5; font-size: 1.2em; display: inline-block; width: 1.2em; text-align: center;">&#9744;</span>`
-          }).replace(/[☑]/g, () => {
-             return `<span class="interactive-checkbox" contenteditable="false" data-checked="true" style="cursor: pointer; user-select: none; color: #4f46e5; font-size: 1.2em; display: inline-block; width: 1.2em; text-align: center;">&#9745;</span>`
-          })
-          
-          return `<p>${withCheckboxes || '<br>'}</p>`
-        })
-        .join('')
-      editorRef.current.innerHTML = html
-    }
+    
+    // content is now ALWAYS valid HTML structure generated by generateFormalSummary
+    editorRef.current.innerHTML = content
+    
     editorRef.current.focus()
   }, [loading])
 
@@ -509,7 +587,7 @@ export default function DischargeEditor({ formInstance, patientData, onClose, on
               padding: '20mm 20mm',
               fontFamily,
               fontSize: '12pt',
-              lineHeight: 1.8,
+              lineHeight: 1.5,
               color: '#111',
               outline: 'none',
               borderRadius: 4,
