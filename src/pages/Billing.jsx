@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Search, Plus, Receipt, X, CheckCircle, Download, Loader, Activity, ShieldCheck, ArrowRight, CreditCard, Stethoscope, FileText } from 'lucide-react'
+import { Search, Plus, Receipt, X, CheckCircle, Download, Loader, Activity, ShieldCheck, ArrowRight, CreditCard, Stethoscope, FileText, Calculator, Pill, FlaskConical } from 'lucide-react'
 import { api } from '../api'
 
 const STATUS_STYLES = {
@@ -134,6 +134,138 @@ function NewBillModal({ patients, onClose, onSave }) {
   )
 }
 
+function IPBillingModal({ patient, onClose, onSave }) {
+  const [charges, setCharges] = useState({
+    roomRent: 0,
+    nursing: 0,
+    consultation: 0,
+    pharmacy: 0,
+    laboratory: 0,
+    radiology: 0,
+    otCharges: 0,
+    miscellaneous: 0,
+  })
+  const [concession, setConcession] = useState(0)
+  const [advance, setAdvance] = useState(0)
+  const [paymentMethod, setPaymentMethod] = useState('Cash')
+  const [saving, setSaving] = useState(false)
+
+  const h = (k, v) => setCharges(c => ({ ...c, [k]: Number(v) || 0 }))
+
+  const totalGross = Object.values(charges).reduce((a, b) => a + b, 0)
+  const netPayable = Math.max(0, totalGross - concession - advance)
+
+  const handleSubmit = async () => {
+    setSaving(true)
+    try {
+      const bill = await api.createBilling({
+        patient_id: patient.id,
+        type: 'IPD',
+        total_amount: totalGross,
+        paid_amount: netPayable > 0 ? netPayable : 0,
+        payment_method: paymentMethod,
+        notes: JSON.stringify({ breakdown: charges, concession, advance, netPayable, isDetailedIP: true })
+      })
+      onSave(bill)
+      onClose()
+    } catch (e) { 
+      alert('Failed to generate IP Bill: ' + e.message) 
+    } finally { 
+      setSaving(false) 
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal modal-lg" style={{ maxWidth: 800 }}>
+        <div className="modal-header" style={{ borderBottom: '1px solid var(--gray-200)', paddingBottom: '1rem', marginBottom: '1rem' }}>
+          <div>
+            <h4 style={{ color: 'var(--gray-900)', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <Calculator size={18} color="var(--primary-600)" /> Final IP Discharge Bill
+            </h4>
+            <p style={{ fontSize: '0.8rem', color: 'var(--gray-500)', marginTop: 4 }}>
+              Patient: <strong>{patient.name} ({patient.id})</strong> | Ward: {patient.ward}
+            </p>
+          </div>
+          <button className="btn btn-ghost btn-icon" onClick={onClose}><X size={18} /></button>
+        </div>
+        
+        <div className="modal-body" style={{ maxHeight: '65vh', overflowY: 'auto', paddingRight: '0.5rem' }}>
+          <div className="grid grid-2" style={{ gap: '1.5rem', gridTemplateColumns: '1fr 340px' }}>
+            {/* Left Column: Charges Breakdown */}
+            <div>
+              <h5 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--gray-700)', marginBottom: '1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Itemized Charge Breakdown (Rs)</h5>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                {[
+                  { key: 'roomRent', label: 'Room Rent / Bed Charges' },
+                  { key: 'nursing', label: 'Nursing & Service Charges' },
+                  { key: 'consultation', label: 'Doctor Consultation Fees' },
+                  { key: 'otCharges', label: 'OT & Procedure Charges' },
+                  { key: 'pharmacy', label: 'Pharmacy & Consumables' },
+                  { key: 'laboratory', label: 'Laboratory Investigations' },
+                  { key: 'radiology', label: 'Radiology / Diagnostics' },
+                  { key: 'miscellaneous', label: 'Miscellaneous (Diet, Bio-Waste)' },
+                ].map(item => (
+                  <div key={item.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', borderBottom: '1px solid var(--gray-100)', paddingBottom: '0.5rem' }}>
+                    <label style={{ fontSize: '0.9rem', color: 'var(--gray-800)', fontWeight: 500, flex: 1 }}>{item.label}</label>
+                    <input className="form-input" type="number" min="0" style={{ width: 120, textAlign: 'right', padding: '0.3rem 0.5rem', fontWeight: 600, fontSize: '0.9rem' }} value={charges[item.key] || ''} onChange={e => h(item.key, e.target.value)} placeholder="0" />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Right Column: Adjustments & Total */}
+            <div style={{ background: 'var(--gray-50)', padding: '1.5rem', borderRadius: 'var(--radius-xl)', border: '1px solid var(--gray-200)', alignSelf: 'start' }}>
+              <h5 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--gray-700)', marginBottom: '1.25rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Settlement Summary</h5>
+              
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', fontSize: '1rem' }}>
+                <span style={{ color: 'var(--gray-600)' }}>Total Gross Amount</span>
+                <span style={{ fontWeight: 800, color: 'var(--gray-900)' }}>Rs {totalGross.toLocaleString()}</span>
+              </div>
+              
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', marginBottom: '1rem' }}>
+                <label style={{ fontSize: '0.9rem', color: 'var(--gray-600)' }}>Discount / Concession</label>
+                <input className="form-input" type="number" min="0" style={{ width: 110, textAlign: 'right', padding: '0.4rem 0.6rem', borderColor: '#f59e0b', fontWeight: 700 }} value={concession || ''} onChange={e => setConcession(Number(e.target.value))} placeholder="0" />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', marginBottom: '1.25rem' }}>
+                <label style={{ fontSize: '0.9rem', color: 'var(--gray-600)' }}>Advance Paid (Deposit)</label>
+                <input className="form-input" type="number" min="0" style={{ width: 110, textAlign: 'right', padding: '0.4rem 0.6rem', borderColor: '#10b981', fontWeight: 700 }} value={advance || ''} onChange={e => setAdvance(Number(e.target.value))} placeholder="0" />
+              </div>
+
+              <div style={{ height: 1, background: 'var(--gray-300)', margin: '1.25rem 0' }}></div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                <span style={{ fontWeight: 800, fontSize: '1.15rem', color: 'var(--gray-900)' }}>Net Payable</span>
+                <span style={{ fontWeight: 900, fontSize: '1.5rem', color: netPayable > 0 ? '#dc2626' : '#10b981', letterSpacing: '-0.02em' }}>Rs {netPayable.toLocaleString()}</span>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.85rem' }}>Payment Method</label>
+                <select className="form-input form-select" style={{ fontWeight: 600 }} value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
+                  {['Cash', 'Card', 'UPI', 'Insurance/TPA', 'Cheque', 'NEFT'].map(m => <option key={m}>{m}</option>)}
+                </select>
+                {paymentMethod === 'Insurance/TPA' && (
+                  <div style={{ fontSize: '0.75rem', color: '#4338ca', marginTop: '0.5rem', fontWeight: 600, background: 'rgba(99,102,241,0.1)', padding: '0.5rem', borderRadius: 6 }}>
+                    This will be recorded as pending until TPA settlement is reconciled.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="modal-footer" style={{ borderTop: '1px solid var(--gray-200)', marginTop: '1rem', paddingTop: '1.25rem' }}>
+          <button className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleSubmit} disabled={saving}>
+            {saving ? <Loader size={14} className="spin" /> : <CheckCircle size={14} />} Finalize & Generate Bill
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Billing() {
   const [bills, setBills] = useState([])
   const [patients, setPatients] = useState([])
@@ -144,6 +276,7 @@ export default function Billing() {
   const [selectedBill, setSelectedBill] = useState(null)
   const [showModal, setShowModal] = useState(false)
   const [activeTab, setActiveTab] = useState('op') // 'op' or 'ip'
+  const [selectedIpBillPatient, setSelectedIpBillPatient] = useState(null)
 
   // IP Discharge Queue (Actual Admitted Patients)
   const [ipQueue, setIpQueue] = useState([])
@@ -336,13 +469,24 @@ export default function Billing() {
                     </span>
                   </div>
                 </div>
-                <button 
-                  className={`btn btn-sm ${p.step >= IP_STEPS.length - 1 ? 'btn-ghost' : 'btn-primary'}`} 
-                  disabled={p.step >= IP_STEPS.length - 1}
-                  onClick={() => advanceIpWorkflow(p.bed_id, p.step)}
-                >
-                  {p.step >= IP_STEPS.length - 1 ? 'Discharged' : 'Advance Workflow'} <ArrowRight size={14} />
-                </button>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  {p.step >= 4 && p.step <= 5 && (
+                    <button 
+                      className="btn btn-sm btn-secondary" 
+                      style={{ background: '#fff', borderColor: 'var(--primary-600)', color: 'var(--primary-700)' }}
+                      onClick={() => setSelectedIpBillPatient(p)}
+                    >
+                      <Calculator size={14} /> Generate IP Bill
+                    </button>
+                  )}
+                  <button 
+                    className={`btn btn-sm ${p.step >= IP_STEPS.length - 1 ? 'btn-ghost' : 'btn-primary'}`} 
+                    disabled={p.step >= IP_STEPS.length - 1}
+                    onClick={() => advanceIpWorkflow(p.bed_id, p.step)}
+                  >
+                    {p.step >= IP_STEPS.length - 1 ? 'Discharged' : 'Advance Workflow'} <ArrowRight size={14} />
+                  </button>
+                </div>
               </div>
 
               {/* Progress Stepper */}
@@ -388,6 +532,10 @@ export default function Billing() {
 
       {selectedBill && <BillModal bill={selectedBill} onClose={() => setSelectedBill(null)} onMarkPaid={handleMarkPaid} />}
       {showModal && <NewBillModal patients={patients} onClose={() => setShowModal(false)} onSave={handleSave} />}
+      {selectedIpBillPatient && <IPBillingModal patient={selectedIpBillPatient} onClose={() => setSelectedIpBillPatient(null)} onSave={(bill) => {
+        handleSave(bill);
+        setActiveTab('op'); // Switch to OP tab to view the generated bill
+      }} />}
     </div>
   )
 }

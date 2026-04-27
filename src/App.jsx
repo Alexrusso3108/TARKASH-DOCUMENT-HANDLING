@@ -25,6 +25,7 @@ import Laboratory from './pages/Laboratory'
 import Radiology from './pages/Radiology'
 import Pharmacy from './pages/Pharmacy'
 import Billing from './pages/Billing'
+import IPBilling from './pages/IPBilling'
 import TPA from './pages/TPA'
 import OperationTheatre from './pages/OperationTheatre'
 import BloodBank from './pages/BloodBank'
@@ -120,6 +121,7 @@ export default function App() {
 
         {/* Finance */}
         <Route path="billing" element={<Billing />} />
+        <Route path="ip-billing" element={<IPBilling />} />
         <Route path="tpa-insurance" element={<TPA />} />
 
         {/* Reports & System */}

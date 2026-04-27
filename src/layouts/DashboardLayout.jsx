@@ -58,7 +58,8 @@ const BASE_NAV = [
   {
     section: 'Finance',
     items: [
-      { label: 'Billing',     path: '/app/billing',     icon: Receipt },
+      { label: 'OP Billing',     path: '/app/billing',     icon: Receipt },
+      { label: 'IP Billing',     path: '/app/ip-billing',  icon: Receipt },
       { label: 'TPA & Insurance', path: '/app/tpa-insurance', icon: ShieldCheck },
     ],
   },

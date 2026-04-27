@@ -103,6 +103,13 @@ async function initDB() {
       `ALTER TABLE beds ADD COLUMN IF NOT EXISTS discharge_status VARCHAR(50) DEFAULT 'Admitted'`,
       `ALTER TABLE beds ADD COLUMN IF NOT EXISTS discharge_notes TEXT`,
       `DO $m$ BEGIN ALTER TABLE hospitals ADD COLUMN logo TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
+      `DO $m$ BEGIN ALTER TABLE hospitals ADD COLUMN report_header_text TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
+      `DO $m$ BEGIN ALTER TABLE hospitals ADD COLUMN report_footer_text TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
+      `DO $m$ BEGIN ALTER TABLE hospitals ADD COLUMN report_tagline VARCHAR(300); EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
+      `DO $m$ BEGIN ALTER TABLE hospitals ADD COLUMN report_logo TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
+      `DO $m$ BEGIN ALTER TABLE hospitals ADD COLUMN report_header_image TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
+      `DO $m$ BEGIN ALTER TABLE hospitals ADD COLUMN report_footer_image TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
+      `DO $m$ BEGIN ALTER TABLE hospitals ADD COLUMN report_print_mode VARCHAR(50) DEFAULT 'text'; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
       `DO $m$ BEGIN ALTER TABLE clinical_notes ADD COLUMN hospital_id INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
       `DO $m$ BEGIN ALTER TABLE lab_tests ADD COLUMN hospital_id INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
       `DO $m$ BEGIN ALTER TABLE pharmacy_inventory ADD COLUMN hospital_id INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
@@ -190,6 +197,7 @@ async function initDB() {
       )`,
       `CREATE INDEX IF NOT EXISTS idx_patient_ds_patient ON patient_discharge_summaries(patient_id)`,
       `CREATE INDEX IF NOT EXISTS idx_patient_ds_template ON patient_discharge_summaries(template_id)`,
+      `DO $m$ BEGIN ALTER TABLE patient_discharge_summaries ADD COLUMN text_content TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
     ]
     for (const sql of safeMigrations) {
       await c.query(sql)
@@ -212,6 +220,7 @@ const app = express()
 app.use(cors())
 app.use(express.json({ limit: '50mb' }))
 app.use(express.urlencoded({ limit: '50mb', extended: true }))
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')))
 
 // ─────────────────────────────────────────────────────────────
 // AUTH ROUTES
@@ -232,7 +241,8 @@ app.get('/api/hospital', requireAuth, async (req, res) => {
 
 app.patch('/api/hospital', requireAuth, async (req, res) => {
   try {
-    const allowed = ['name', 'address', 'city', 'phone', 'email', 'license_no', 'bed_count']
+    const allowed = ['name', 'address', 'city', 'phone', 'email', 'license_no', 'bed_count',
+                     'report_header_text', 'report_footer_text', 'report_tagline', 'report_print_mode']
     const fields = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)))
     if (!Object.keys(fields).length) return res.status(400).json({ error: 'Nothing to update' })
     const keys = Object.keys(fields)
@@ -240,6 +250,47 @@ app.patch('/api/hospital', requireAuth, async (req, res) => {
     const vals = [req.user.hospitalId, ...keys.map(k => fields[k])]
     const { rows } = await pool.query(
       `UPDATE hospitals SET ${clause} WHERE id = $1 RETURNING *`, vals
+    )
+    res.json(rows[0])
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// Upload hospital report logo
+const LOGO_DIR = path.join(__dirname, 'uploads', 'logos')
+if (!fs.existsSync(LOGO_DIR)) fs.mkdirSync(LOGO_DIR, { recursive: true })
+
+const brandingStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, LOGO_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase()
+    const type = req.params.type || 'logo' // 'logo', 'header', 'footer'
+    cb(null, `hospital_${req.user.hospitalId}_${type}${ext}`)
+  },
+})
+
+const brandingUpload = multer({
+  storage: brandingStorage,
+  fileFilter: (req, file, cb) => {
+    if (['image/png', 'image/jpeg', 'image/jpg', 'image/webp'].includes(file.mimetype)) cb(null, true)
+    else cb(new Error('Only PNG, JPG, JPEG, WEBP images allowed'))
+  },
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+})
+
+app.post('/api/hospital/upload-branding/:type', requireAuth, brandingUpload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No image file uploaded' })
+    const type = req.params.type
+    if (!['logo', 'header', 'footer'].includes(type)) return res.status(400).json({ error: 'Invalid type' })
+    
+    const imagePath = `/uploads/logos/${req.file.filename}`
+    let col = 'report_logo'
+    if (type === 'header') col = 'report_header_image'
+    if (type === 'footer') col = 'report_footer_image'
+
+    const { rows } = await pool.query(
+      `UPDATE hospitals SET ${col} = $2 WHERE id = $1 RETURNING *`,
+      [req.user.hospitalId, imagePath]
     )
     res.json(rows[0])
   } catch (e) { res.status(500).json({ error: e.message }) }
@@ -852,7 +903,7 @@ app.post('/api/discharge-summaries', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
-// PATCH — save annotations
+// PATCH — save annotations (canvas mode)
 app.patch('/api/discharge-summaries/:id', requireAuth, async (req, res) => {
   try {
     const { annotations, status, filled_by, notes } = req.body
@@ -861,6 +912,21 @@ app.patch('/api/discharge-summaries/:id', requireAuth, async (req, res) => {
        SET annotations=$2, status=$3, filled_by=$4, notes=$5, updated_at=NOW()
        WHERE id=$1 RETURNING *`,
       [req.params.id, JSON.stringify(annotations || []), status || 'blank', filled_by || '', notes || '']
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Summary instance not found' })
+    res.json(rows[0])
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
+
+// PATCH — save HTML text content (word editor mode)
+app.patch('/api/discharge-summaries/:id/text', requireAuth, async (req, res) => {
+  try {
+    const { text_content, status } = req.body
+    const { rows } = await pool.query(
+      `UPDATE patient_discharge_summaries
+       SET text_content=$2, status=$3, updated_at=NOW()
+       WHERE id=$1 RETURNING *`,
+      [req.params.id, text_content || '', status || 'in-progress']
     )
     if (!rows.length) return res.status(404).json({ error: 'Summary instance not found' })
     res.json(rows[0])

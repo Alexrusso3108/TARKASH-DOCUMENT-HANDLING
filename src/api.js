@@ -7,16 +7,20 @@ function getToken() {
   return localStorage.getItem('swasthyasync_token')
 }
 
-async function request(method, path, body) {
+async function request(method, path, body = null, isMultipart = false) {
   const token = getToken()
   const opts = {
     method,
     headers: {
-      'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   }
-  if (body) opts.body = JSON.stringify(body)
+  if (!isMultipart) {
+    opts.headers['Content-Type'] = 'application/json'
+  }
+  if (body) {
+    opts.body = isMultipart ? body : JSON.stringify(body)
+  }
   const res = await fetch(`${BASE_URL}${path}`, opts)
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
@@ -81,6 +85,7 @@ export const api = {
   createLab: (data) => request('POST', '/lab', data),
   updateLab: (id, data) => request('PATCH', `/lab/${id}`, data),
   uploadLabPDF: (id, formData) => request('POST', `/lab/${id}/upload-result`, formData, true),
+  uploadLabResult: (id, file) => uploadPdf(`/lab/${id}/upload-result`, file),
   sendLabEmail: (id, formData) => request('POST', `/lab/${id}/email-result`, formData, true),
 
   // Radiology
@@ -106,6 +111,21 @@ export const api = {
   // Hospital Profile
   getHospital: () => request('GET', '/hospital'),
   updateHospital: (data) => request('PATCH', '/hospital', data),
+  uploadHospitalBranding: async (type, file) => {
+    const token = getToken()
+    const form = new FormData()
+    form.append('image', file)
+    const res = await fetch(`${BASE_URL}/hospital/upload-branding/${type}`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }))
+      throw new Error(err.error || 'Upload failed')
+    }
+    return res.json()
+  },
 
   // Discharge Summary Templates
   getDischargeTemplates: (params = {}) => request('GET', `/discharge-templates?${new URLSearchParams(params)}`),

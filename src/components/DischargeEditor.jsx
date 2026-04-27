@@ -1,0 +1,533 @@
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
+import {
+  X, Download, Save, Loader, CheckCircle, ChevronLeft,
+  Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight,
+  Type, Printer, RotateCcw,
+} from 'lucide-react'
+import { SERVER_URL, BASE_URL } from '../api'
+
+// ─── Patient field substitution map ──────────────────────────────────────────
+const FIELD_ALIASES = [
+  { key: 'patient_name',      aliases: ['patient name', "patient's name", 'pt name', 'name of patient'] },
+  { key: 'age_gender',        aliases: ['age / gender', 'age/gender', 'age & gender', 'age-gender', 'age / sex'] },
+  { key: 'age',               aliases: ['age'] },
+  { key: 'gender',            aliases: ['gender', 'sex'] },
+  { key: 'reg_no',            aliases: ['reg no', 'reg. no', 'uhid', 'mrd no', 'mr no', 'patient id', 'registration no'] },
+  { key: 'date_of_admission', aliases: ['date of admission', 'admission date', 'd.o.a', 'doa', 'admitted on'] },
+  { key: 'date_of_discharge', aliases: ['date of discharge', 'discharge date', 'd.o.d', 'dod', 'discharged on'] },
+  { key: 'consultant',        aliases: ['consultant', 'doctor', 'physician', 'attending doctor', 'surgeon'] },
+  { key: 'department',        aliases: ['department', 'dept', 'specialty', 'unit', 'ward name'] },
+  { key: 'diagnosis',         aliases: ['diagnosis', 'final diagnosis', 'primary diagnosis', 'clinical diagnosis'] },
+  { key: 'room_bed',          aliases: ['room / bed', 'room/bed', 'bed no', 'bed number', 'room', 'bed', 'ward'] },
+  { key: 'ip_no',             aliases: ['ip no', 'ip number', 'ipd no', 'inpatient no', 'admission no'] },
+  { key: 'phone',             aliases: ['phone number', 'phone no', 'mobile no', 'contact no', 'phone'] },
+  { key: 'address',           aliases: ['address', 'residence'] },
+  { key: 'blood_group',       aliases: ['blood group', 'blood type'] },
+]
+
+function buildValues(p) {
+  if (!p) return {}
+  const fmtDate = d => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
+  return {
+    patient_name:      p.name || '',
+    age:               p.age  ? `${p.age} Y` : '',
+    gender:            p.gender || '',
+    age_gender:        [p.age ? `${p.age} Y` : '', p.gender].filter(Boolean).join(' / '),
+    reg_no:            p.id || p.uhid || '',
+    date_of_admission: fmtDate(p.admitted_at),
+    date_of_discharge: fmtDate(p.discharged_at),
+    phone:             p.phone || '',
+    consultant:        p.doctor_name ? `Dr. ${p.doctor_name}` : '',
+    room_bed:          p.bed_id || p.room_bed || p.ward || '',
+    ip_no:             p.ip_no || p.id || '',
+    department:        p.department || '',
+    diagnosis:         p.diagnosis || '',
+    blood_group:       p.blood_group || '',
+    address:           p.address || '',
+  }
+}
+
+// Smart substitution: replace "Label:" with "Label: <value>" in extracted text
+function substituteValues(text, values) {
+  let result = text
+  for (const fieldDef of FIELD_ALIASES) {
+    const val = values[fieldDef.key]
+    if (!val) continue
+    for (const alias of fieldDef.aliases) {
+      // Match "Label:" or "Label :" followed by optional whitespace (not followed by non-whitespace value)
+      const pattern = new RegExp(
+        `(${alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:)(\\s*)(?=[\\n\\r]|$|\\s{2,})`,
+        'gi'
+      )
+      result = result.replace(pattern, `$1 ${val}`)
+    }
+  }
+  return result
+}
+
+// ─── Extract text from PDF maintaining structure ──────────────────────────────
+async function extractPdfText(pdfUrl) {
+  const pdfjsLib = await import('pdfjs-dist')
+  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+    'pdfjs-dist/build/pdf.worker.mjs', import.meta.url
+  ).toString()
+
+  const doc = await pdfjsLib.getDocument(pdfUrl).promise
+  let fullText = ''
+
+  for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
+    const page = await doc.getPage(pageNum)
+    const content = await page.getTextContent()
+    const viewport = page.getViewport({ scale: 1 })
+    const pageH = viewport.height
+
+    // Group items by row (y position), then sort rows top-to-bottom
+    const rowMap = new Map()
+    for (const item of content.items) {
+      if (!item.str?.trim()) continue
+      const [, , , , , ty] = item.transform
+      // Round y to nearest 2pt to group items on the same line
+      const rowKey = Math.round((pageH - ty) / 2) * 2
+      if (!rowMap.has(rowKey)) rowMap.set(rowKey, [])
+      rowMap.get(rowKey).push({ text: item.str, x: item.transform[4] })
+    }
+
+    // Sort rows top-to-bottom, sort items within row left-to-right
+    const sortedRows = [...rowMap.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([, items]) => items.sort((a, b) => a.x - b.x).map(i => i.text).join('  '))
+
+    if (pageNum > 1) fullText += '\n\n'
+    fullText += sortedRows.join('\n')
+  }
+
+  return fullText
+}
+
+// ─── Toolbar Button ───────────────────────────────────────────────────────────
+function ToolBtn({ onClick, active, title, children, disabled }) {
+  return (
+    <button
+      onMouseDown={e => { e.preventDefault(); onClick && onClick() }}
+      title={title}
+      disabled={disabled}
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        width: 32, height: 30, border: 'none', borderRadius: 5, cursor: disabled ? 'not-allowed' : 'pointer',
+        background: active ? 'rgba(99,102,241,0.15)' : 'transparent',
+        color: active ? '#4f46e5' : '#374151',
+        transition: 'all 120ms', opacity: disabled ? 0.4 : 1,
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
+// ─── Main Editor ─────────────────────────────────────────────────────────────
+export default function DischargeEditor({ formInstance, patientData, onClose, onSaved }) {
+  const [content, setContent]     = useState('')
+  const [loading, setLoading]     = useState(true)
+  const [error, setError]         = useState(null)
+  const [saving, setSaving]       = useState(false)
+  const [saved, setSaved]         = useState(false)
+  const [downloading, setDownloading] = useState(false)
+  const [fontFamily, setFontFamily]   = useState('Arial')
+  const [fontSize, setFontSize]       = useState('12')
+  const editorRef = useRef(null)
+  const pdfUrl    = `${SERVER_URL}${formInstance.file_path}`
+
+  // ── Load PDF and extract text ──────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+
+    // Try to load previously saved HTML content first
+    if (formInstance.text_content) {
+      setContent(formInstance.text_content)
+      setLoading(false)
+      return
+    }
+
+    extractPdfText(pdfUrl).then(text => {
+      if (cancelled) return
+      const values = buildValues(patientData)
+      const substituted = substituteValues(text, values)
+      setContent(substituted)
+    }).catch(e => {
+      if (!cancelled) setError('Could not read PDF template: ' + e.message)
+    }).finally(() => {
+      if (!cancelled) setLoading(false)
+    })
+
+    return () => { cancelled = true }
+  }, [formInstance.id])
+
+  // ── Sync content to editor when loaded ────────────────────────────────────
+  useEffect(() => {
+    if (loading || !editorRef.current) return
+    if (!content) {
+      editorRef.current.innerHTML = '<p><br></p>'
+      return
+    }
+    // If content is already HTML (saved from a previous session), inject directly
+    if (content.trim().startsWith('<')) {
+      editorRef.current.innerHTML = content
+    } else {
+      // Convert plain text to HTML paragraphs
+      const html = content
+        .split('\n')
+        .map(line => {
+          const escaped = line
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          
+          const withCheckboxes = escaped.replace(/[□☐🞏]/g, () => {
+             return `<span class="interactive-checkbox" contenteditable="false" data-checked="false" style="cursor: pointer; user-select: none; color: #4f46e5; font-size: 1.2em; display: inline-block; width: 1.2em; text-align: center;">&#9744;</span>`
+          }).replace(/[☑]/g, () => {
+             return `<span class="interactive-checkbox" contenteditable="false" data-checked="true" style="cursor: pointer; user-select: none; color: #4f46e5; font-size: 1.2em; display: inline-block; width: 1.2em; text-align: center;">&#9745;</span>`
+          })
+          
+          return `<p>${withCheckboxes || '<br>'}</p>`
+        })
+        .join('')
+      editorRef.current.innerHTML = html
+    }
+    editorRef.current.focus()
+  }, [loading])
+
+  // ── Exec command wrapper ──────────────────────────────────────────────────
+  const exec = (cmd, val = null) => {
+    editorRef.current?.focus()
+    document.execCommand(cmd, false, val)
+  }
+
+  // ── Interactive Checkboxes ────────────────────────────────────────────────
+  const handleEditorClick = (e) => {
+    if (e.target.classList.contains('interactive-checkbox')) {
+      e.preventDefault()
+      const isChecked = e.target.getAttribute('data-checked') === 'true'
+      const newState = !isChecked
+      e.target.setAttribute('data-checked', String(newState))
+      e.target.innerHTML = newState ? '&#9745;' : '&#9744;'
+      
+      // Update color based on checked state
+      if (newState) {
+        e.target.style.color = '#10b981' // Green for checked
+      } else {
+        e.target.style.color = '#4f46e5' // Indigo for unchecked
+      }
+    }
+  }
+
+  // ── Save text content to server ───────────────────────────────────────────
+  const handleSave = async () => {
+    if (!editorRef.current) return
+    const html = editorRef.current.innerHTML
+    setSaving(true)
+    try {
+      const token = localStorage.getItem('hms_token')
+      await fetch(`${BASE_URL}/discharge-summaries/${formInstance.id}/text`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ text_content: html, status: 'in-progress' }),
+      })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+      if (onSaved) onSaved(html)
+    } catch (e) { alert('Save failed: ' + e.message) }
+    finally { setSaving(false) }
+  }
+
+  // ── Download as PDF via browser print ────────────────────────────────────
+  const handleDownload = useCallback(async () => {
+    if (!editorRef.current) return
+    setDownloading(true)
+    try {
+      const { jsPDF } = await import('jspdf')
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      const pageW = doc.internal.pageSize.getWidth()
+      const pageH = doc.internal.pageSize.getHeight()
+      const margin = 15
+      const lineHeight = 6
+      const usableW = pageW - margin * 2
+      let y = margin
+
+      doc.setFont('helvetica', 'normal')
+      doc.setFontSize(11)
+      doc.setTextColor(20, 20, 20)
+
+      // Walk the editor DOM to extract styled text
+      const walker = (node, styles = {}) => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          const text = node.textContent
+          if (!text) return
+
+          // Apply styles
+          const isBold      = styles.bold
+          const isItalic    = styles.italic
+          const isUnderline = styles.underline
+          const fontStyle   = isBold && isItalic ? 'bolditalic' : isBold ? 'bold' : isItalic ? 'italic' : 'normal'
+          doc.setFont('helvetica', fontStyle)
+          if (isUnderline) doc.setDrawColor(20, 20, 20)
+
+          const size = parseFloat(styles.fontSize) || 11
+          doc.setFontSize(size)
+
+          const lines = doc.splitTextToSize(text, usableW)
+          for (const line of lines) {
+            if (y + lineHeight > pageH - margin) { doc.addPage(); y = margin }
+            const align = styles.textAlign || 'left'
+            const x = align === 'center' ? pageW / 2 : align === 'right' ? pageW - margin : margin
+            const opts = align === 'center' ? { align: 'center' } : align === 'right' ? { align: 'right' } : {}
+            doc.text(line, x, y, opts)
+            if (isUnderline) {
+              const tw = doc.getTextWidth(line)
+              doc.line(x, y + 0.5, x + tw, y + 0.5)
+            }
+            y += lineHeight
+          }
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          const tag = node.tagName.toLowerCase()
+          const cs = window.getComputedStyle(node)
+          const childStyles = {
+            bold:      styles.bold || cs.fontWeight >= 600 || tag === 'b' || tag === 'strong',
+            italic:    styles.italic || tag === 'i' || tag === 'em' || cs.fontStyle === 'italic',
+            underline: styles.underline || tag === 'u' || cs.textDecoration?.includes('underline'),
+            fontSize:  parseFloat(cs.fontSize) * 0.75 || styles.fontSize, // px to pt
+            textAlign: cs.textAlign || styles.textAlign,
+          }
+
+          // Block elements: add newline before
+          const isBlock = ['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li'].includes(tag)
+          if (isBlock && y > margin) y += lineHeight * 0.3
+
+          for (const child of node.childNodes) walker(child, childStyles)
+
+          // Block elements: add newline after
+          if (isBlock) y += lineHeight * 0.3
+          if (tag === 'br') y += lineHeight
+        }
+      }
+
+      for (const child of editorRef.current.childNodes) {
+        walker(child, {})
+        y += lineHeight * 0.1
+      }
+
+      const name = patientData?.name
+        ? `Discharge Summary - ${patientData.name}.pdf`
+        : `${formInstance.template_name || 'Discharge Summary'}.pdf`
+      doc.save(name.replace(/[/\\:*?"<>|]/g, '_'))
+    } catch (e) {
+      alert('Download failed: ' + e.message)
+      console.error(e)
+    } finally {
+      setDownloading(false)
+    }
+  }, [patientData, formInstance])
+
+  // ── Print handler ─────────────────────────────────────────────────────────
+  const handlePrint = () => {
+    const html = editorRef.current?.innerHTML || ''
+    const w = window.open('', '_blank')
+    w.document.write(`
+      <!DOCTYPE html><html><head>
+      <title>Discharge Summary${patientData?.name ? ' - ' + patientData.name : ''}</title>
+      <style>
+        body { margin: 20mm; font-family: Arial, sans-serif; font-size: 12pt; color: #111; line-height: 1.6; }
+        p { margin: 0 0 4pt; } h1,h2,h3 { margin: 8pt 0 4pt; }
+        @page { size: A4; margin: 20mm; }
+      </style></head><body>
+      ${html}
+      </body></html>`)
+    w.document.close()
+    w.focus()
+    setTimeout(() => { w.print(); w.close() }, 400)
+  }
+
+  const patientStrip = patientData ? [
+    patientData.name,
+    patientData.age ? `${patientData.age}Y` : null,
+    patientData.gender,
+    patientData.id,
+    patientData.doctor_name ? `Dr. ${patientData.doctor_name}` : null,
+  ].filter(Boolean).join('  ·  ') : null
+
+  const FONTS = ['Arial', 'Times New Roman', 'Courier New', 'Georgia', 'Verdana']
+  const SIZES = ['10', '11', '12', '14', '16', '18', '20', '24']
+
+  return createPortal(
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', flexDirection: 'column',
+      background: '#f1f5f9',
+    }}>
+      {/* ── Top bar ── */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.625rem 1rem',
+        background: '#1e293b', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0,
+      }}>
+        <button onClick={onClose} style={{
+          display: 'flex', alignItems: 'center', gap: '0.4rem',
+          background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 8,
+          padding: '0.4rem 0.8rem', color: 'rgba(255,255,255,0.85)', cursor: 'pointer',
+          fontSize: '0.875rem', fontWeight: 600,
+        }}>
+          <ChevronLeft size={16} /> Back
+        </button>
+
+        <div style={{ flex: 1 }}>
+          <div style={{ color: '#fff', fontWeight: 700, fontSize: '0.9375rem' }}>
+            {formInstance.template_name}
+          </div>
+          {patientStrip && (
+            <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.72rem' }}>{patientStrip}</div>
+          )}
+        </div>
+
+        <button onClick={handlePrint} style={{
+          display: 'flex', alignItems: 'center', gap: '0.4rem',
+          background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: 8,
+          padding: '0.4rem 0.9rem', color: 'rgba(255,255,255,0.8)', cursor: 'pointer',
+          fontSize: '0.825rem', fontWeight: 600,
+        }}>
+          <Printer size={14} /> Print
+        </button>
+
+        <button onClick={handleDownload} disabled={downloading} style={{
+          display: 'flex', alignItems: 'center', gap: '0.4rem',
+          background: downloading ? 'rgba(99,102,241,0.3)' : 'rgba(99,102,241,0.85)',
+          border: 'none', borderRadius: 8, padding: '0.4rem 0.9rem',
+          color: '#fff', cursor: downloading ? 'not-allowed' : 'pointer',
+          fontSize: '0.825rem', fontWeight: 600,
+        }}>
+          {downloading ? <Loader size={14} className="spin" /> : <Download size={14} />}
+          {downloading ? ' Generating…' : ' Download PDF'}
+        </button>
+
+        <button onClick={handleSave} disabled={saving} style={{
+          display: 'flex', alignItems: 'center', gap: '0.4rem',
+          background: saved ? 'rgba(16,185,129,0.85)' : 'rgba(16,185,129,0.7)',
+          border: 'none', borderRadius: 8, padding: '0.4rem 0.9rem',
+          color: '#fff', cursor: saving ? 'not-allowed' : 'pointer',
+          fontSize: '0.825rem', fontWeight: 600,
+        }}>
+          {saving ? <Loader size={14} className="spin" /> : saved ? <CheckCircle size={14} /> : <Save size={14} />}
+          {saving ? ' Saving…' : saved ? ' Saved!' : ' Save'}
+        </button>
+
+        <button onClick={onClose} style={{
+          background: 'rgba(239,68,68,0.15)', border: 'none', borderRadius: 8,
+          width: 36, height: 36, cursor: 'pointer', color: '#f87171',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <X size={18} />
+        </button>
+      </div>
+
+      {/* ── Formatting toolbar ── */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.375rem 1rem',
+        background: '#fff', borderBottom: '1px solid #e2e8f0', flexShrink: 0, flexWrap: 'wrap',
+      }}>
+        {/* Font family */}
+        <select value={fontFamily} onChange={e => { setFontFamily(e.target.value); exec('fontName', e.target.value) }}
+          style={{ height: 28, border: '1px solid #d1d5db', borderRadius: 5, padding: '0 6px', fontSize: '0.8rem', cursor: 'pointer' }}>
+          {FONTS.map(f => <option key={f} value={f}>{f}</option>)}
+        </select>
+
+        {/* Font size */}
+        <select value={fontSize} onChange={e => { setFontSize(e.target.value); exec('fontSize', e.target.value <= 12 ? '2' : e.target.value <= 16 ? '3' : e.target.value <= 18 ? '4' : '5') }}
+          style={{ height: 28, border: '1px solid #d1d5db', borderRadius: 5, padding: '0 6px', fontSize: '0.8rem', width: 58, cursor: 'pointer' }}>
+          {SIZES.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+
+        <div style={{ width: 1, height: 22, background: '#e2e8f0', margin: '0 4px' }} />
+
+        <ToolBtn onClick={() => exec('bold')} title="Bold (Ctrl+B)"><Bold size={14} /></ToolBtn>
+        <ToolBtn onClick={() => exec('italic')} title="Italic (Ctrl+I)"><Italic size={14} /></ToolBtn>
+        <ToolBtn onClick={() => exec('underline')} title="Underline (Ctrl+U)"><Underline size={14} /></ToolBtn>
+
+        <div style={{ width: 1, height: 22, background: '#e2e8f0', margin: '0 4px' }} />
+
+        <ToolBtn onClick={() => exec('justifyLeft')} title="Align Left"><AlignLeft size={14} /></ToolBtn>
+        <ToolBtn onClick={() => exec('justifyCenter')} title="Align Center"><AlignCenter size={14} /></ToolBtn>
+        <ToolBtn onClick={() => exec('justifyRight')} title="Align Right"><AlignRight size={14} /></ToolBtn>
+
+        <div style={{ width: 1, height: 22, background: '#e2e8f0', margin: '0 4px' }} />
+
+        <ToolBtn onClick={() => exec('undo')} title="Undo (Ctrl+Z)"><RotateCcw size={14} /></ToolBtn>
+
+        {/* Font color */}
+        <div title="Text Color" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <Type size={14} style={{ position: 'absolute', left: 5, pointerEvents: 'none', color: '#374151' }} />
+          <input type="color" defaultValue="#111111"
+            onChange={e => exec('foreColor', e.target.value)}
+            style={{ width: 36, height: 28, border: '1px solid #d1d5db', borderRadius: 5, cursor: 'pointer', paddingLeft: 18, paddingRight: 0 }} />
+        </div>
+      </div>
+
+      {/* ── Patient info strip ── */}
+      {patientData && (
+        <div style={{
+          background: 'linear-gradient(90deg, rgba(99,102,241,0.08), rgba(13,148,136,0.06))',
+          borderBottom: '1px solid rgba(99,102,241,0.12)',
+          padding: '0.375rem 1.25rem', fontSize: '0.75rem', color: '#4338ca', fontWeight: 500,
+          flexShrink: 0,
+        }}>
+          📋 {patientStrip}
+        </div>
+      )}
+
+      {/* ── Editor body ── */}
+      <div style={{ flex: 1, overflow: 'auto', padding: '2rem 1rem', background: '#f1f5f9' }}>
+        {loading ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1rem', color: '#64748b', marginTop: '10vh' }}>
+            <Loader size={32} className="spin" />
+            <div style={{ fontWeight: 600 }}>Reading template…</div>
+            <div style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Extracting text from your PDF and pre-filling patient details</div>
+          </div>
+        ) : error ? (
+          <div style={{ color: '#dc2626', textAlign: 'center', padding: '4rem' }}>{error}</div>
+        ) : (
+          <div
+            ref={editorRef}
+            contentEditable
+            suppressContentEditableWarning
+            spellCheck
+            onClick={handleEditorClick}
+            style={{
+              margin: '0 auto',
+              width: '210mm',
+              minHeight: '297mm',
+              background: '#fff',
+              boxShadow: '0 4px 32px rgba(0,0,0,0.10)',
+              padding: '20mm 20mm',
+              fontFamily,
+              fontSize: '12pt',
+              lineHeight: 1.8,
+              color: '#111',
+              outline: 'none',
+              borderRadius: 4,
+              // Paragraph spacing
+              wordBreak: 'break-word',
+            }}
+          />
+        )}
+      </div>
+
+      <style>{`
+        [contenteditable] p { margin: 0 0 4pt; }
+        [contenteditable]:focus { outline: none; }
+        [contenteditable] h1 { font-size: 20pt; font-weight: 700; margin: 12pt 0 6pt; }
+        [contenteditable] h2 { font-size: 16pt; font-weight: 700; margin: 10pt 0 5pt; }
+        [contenteditable] h3 { font-size: 13pt; font-weight: 700; margin: 8pt 0 4pt; }
+      `}</style>
+    </div>,
+    document.body
+  )
+}

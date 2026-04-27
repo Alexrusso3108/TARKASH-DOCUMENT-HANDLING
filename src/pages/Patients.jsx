@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { api } from '../api'
 import FormViewer from '../components/FormViewer'
+import DischargeEditor from '../components/DischargeEditor'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const BLOOD_GROUPS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', 'Unknown']
@@ -504,13 +505,22 @@ function PatientPanel({ patient, onClose }) {
 
   return (
     <>
-      {openForm && (
+      {openForm && openForm.type === 'discharge' && (
+        <DischargeEditor
+          formInstance={{ ...openForm, patient_name: patient.name }}
+          patientData={patient}
+          onClose={() => setOpenForm(null)}
+          onSaved={(html) => handleAnnotationsSaved([], 'in-progress')}
+        />
+      )}
+
+      {openForm && openForm.type !== 'discharge' && (
         <FormViewer
           formInstance={{ ...openForm, patient_name: patient.name }}
           patientData={patient}
           onClose={() => setOpenForm(null)}
           onAnnotationsSaved={handleAnnotationsSaved}
-          allForms={[...(forms || []).map(f => ({ ...f, type: 'form' })), ...(dischargeSummaries || []).map(s => ({ ...s, type: 'discharge' }))].map(f => ({ ...f, patient_name: patient.name }))}
+          allForms={[...(forms || []).map(f => ({ ...f, type: 'form' }))].map(f => ({ ...f, patient_name: patient.name }))}
           onSwitchForm={(f) => setOpenForm(f)}
         />
       )}

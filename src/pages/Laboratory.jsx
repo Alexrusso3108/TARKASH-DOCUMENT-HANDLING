@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Plus, FlaskConical, X, CheckCircle, Loader, UploadCloud, FileText, ExternalLink, Download, Mail } from 'lucide-react'
+import { Search, Plus, FlaskConical, X, CheckCircle, Loader, UploadCloud, FileText, ExternalLink, Download, Mail, MessageCircle } from 'lucide-react'
 import { api, SERVER_URL } from '../api'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -294,11 +294,15 @@ function NewLabModal({ onClose, onSave, patients, doctors }) {
 }
 
 // ─── Result Side Panel ────────────────────────────────────────────────────────
-// ─── Result Side Panel ────────────────────────────────────────────────────────
 function ResultPanel({ order, onClose, onUpdated }) {
   const [results, setResults] = useState({})
   const [saving, setSaving] = useState(false)
   const [emailing, setEmailing] = useState(false)
+  const [whatsappSending, setWhatsappSending] = useState(false)
+  const [hospitalInfo, setHospitalInfo] = useState(null)
+  const [logoBase64, setLogoBase64] = useState(null)
+  const [headerBase64, setHeaderBase64] = useState(null)
+  const [footerBase64, setFooterBase64] = useState(null)
   const isCompleted = order.status === 'Completed'
   const testConfig = LAB_TEST_CATALOG[order.test_name] || null
 
@@ -308,31 +312,223 @@ function ResultPanel({ order, onClose, onUpdated }) {
     }
   }, [order, isCompleted])
 
+  // Fetch hospital branding on mount
+  useEffect(() => {
+    const loadImg = (url, setter) => {
+      if (!url) return
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas')
+          canvas.width = img.naturalWidth
+          canvas.height = img.naturalHeight
+          const ctx = canvas.getContext('2d')
+          ctx.drawImage(img, 0, 0)
+          setter(canvas.toDataURL('image/png'))
+        } catch (e) { console.warn('Base64 conversion failed:', e) }
+      }
+      img.onerror = () => console.warn('Could not load image for PDF', url)
+      img.src = `${SERVER_URL}${url}?t=${Date.now()}` // Cache buster
+    }
+
+    api.getHospital().then(h => {
+      setHospitalInfo(h)
+      // Pre-load images as base64 for PDF embedding
+      loadImg(h.report_logo, setLogoBase64)
+      loadImg(h.report_header_image, setHeaderBase64)
+      loadImg(h.report_footer_image, setFooterBase64)
+    }).catch(() => {})
+  }, [])
+
   const generatePDF = (orderData, resObj, download = true) => {
     try {
       if (!testConfig) { alert('Test standard configuration not found for auto-pdf generation.'); return; }
       const doc = new jsPDF()
-      doc.setFontSize(20)
-      doc.setTextColor(30, 58, 138)
-      doc.setFont('helvetica', 'bold')
-      doc.text('LABORATORY REPORT', 105, 20, { align: 'center' })
-      
-      doc.setDrawColor(200, 200, 200)
-      doc.line(15, 25, 195, 25)
+      const pageW = doc.internal.pageSize.getWidth()
+      const pageH = doc.internal.pageSize.getHeight()
+      const margin = 15
+      const h = hospitalInfo
+      let cursorY = margin
 
-      doc.setFontSize(10)
+      // ═══════════════════════════════════════════════════════
+      // HEADER — Hospital branding
+      // ═══════════════════════════════════════════════════════
+      const drawHeader = () => {
+        let y = margin
+        let textStartX = margin
+
+        if (h?.report_print_mode === 'image') {
+          if (headerBase64) {
+            try {
+              // Calculate height maintaining aspect ratio, full width
+              const props = doc.getImageProperties(headerBase64)
+              const imgW = pageW
+              const imgH = (props.height * imgW) / props.width
+              doc.addImage(headerBase64, 'PNG', 0, 0, imgW, imgH)
+              return imgH + 5 // Return new cursorY below header
+            } catch (e) {
+              console.warn('Could not embed header image in PDF:', e)
+            }
+          }
+          // If image mode but image not loaded/missing, just leave space
+          return y + 25 
+        }
+
+        // Standard Text/Logo mode
+        // Logo
+        if (logoBase64) {
+          try {
+            const logoH = 22
+            const logoW = 40
+            doc.addImage(logoBase64, 'PNG', margin, y - 2, logoW, logoH)
+            textStartX = margin + logoW + 5
+          } catch (e) {
+            console.warn('Could not embed logo in PDF:', e)
+          }
+        }
+
+        if (h && h.report_header_text) {
+          const headerLines = h.report_header_text.split('\n').filter(l => l.trim())
+          headerLines.forEach((line, i) => {
+            if (i === 0) {
+              doc.setFontSize(14)
+              doc.setTextColor(30, 58, 138)
+              doc.setFont('helvetica', 'bold')
+            } else {
+              doc.setFontSize(8.5)
+              doc.setTextColor(80, 80, 80)
+              doc.setFont('helvetica', 'normal')
+            }
+            doc.text(line, textStartX, y + (i === 0 ? 5 : 7 + i * 4))
+          })
+          y += Math.max(22, 7 + headerLines.length * 4)
+
+          // Tagline
+          if (h.report_tagline) {
+            doc.setFontSize(7.5)
+            doc.setTextColor(79, 70, 229)
+            doc.setFont('helvetica', 'italic')
+            doc.text(h.report_tagline, textStartX, y + 2)
+            y += 6
+          }
+        } else {
+          // Fallback header if no branding configured
+          doc.setFontSize(18)
+          doc.setTextColor(30, 58, 138)
+          doc.setFont('helvetica', 'bold')
+          doc.text(h?.name || 'LABORATORY REPORT', textStartX, y + 10)
+          y += 15
+        }
+
+        // Divider line
+        y += 3
+        doc.setDrawColor(79, 70, 229)
+        doc.setLineWidth(0.8)
+        doc.line(margin, y, pageW - margin, y)
+        doc.setDrawColor(200, 200, 200)
+        doc.setLineWidth(0.3)
+        doc.line(margin, y + 1.5, pageW - margin, y + 1.5)
+
+        return y + 6
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // FOOTER — Hospital footer on every page
+      // ═══════════════════════════════════════════════════════
+      const drawFooter = (pageNum, totalPages) => {
+        if (h?.report_print_mode === 'image') {
+          if (footerBase64) {
+            try {
+              const props = doc.getImageProperties(footerBase64)
+              const imgW = pageW
+              const imgH = (props.height * imgW) / props.width
+              doc.addImage(footerBase64, 'PNG', 0, pageH - imgH, imgW, imgH)
+              
+              // Print page number over footer or above it
+              doc.setFontSize(7)
+              doc.setTextColor(150)
+              doc.text(`Page ${pageNum}`, pageW - margin, pageH - imgH - 5, { align: 'right' })
+              return
+            } catch (e) {
+              console.warn('Could not embed footer image in PDF:', e)
+            }
+          }
+          // If image mode but image not loaded, just print page number
+          doc.setFontSize(7)
+          doc.setTextColor(150)
+          doc.text(`Page ${pageNum}`, pageW - margin, pageH - 15, { align: 'right' })
+          return
+        }
+
+        const footerTop = pageH - 30
+        doc.setDrawColor(79, 70, 229)
+        doc.setLineWidth(0.5)
+        doc.line(margin, footerTop, pageW - margin, footerTop)
+
+        if (h && h.report_footer_text) {
+          const footerLines = h.report_footer_text.split('\n')
+          doc.setFontSize(7)
+          doc.setTextColor(100, 100, 100)
+          doc.setFont('helvetica', 'normal')
+          footerLines.forEach((line, i) => {
+            if (i < 5) { // Max 5 footer lines to avoid overflow
+              doc.text(line, margin, footerTop + 5 + i * 3.5)
+            }
+          })
+        } else {
+          doc.setFontSize(8)
+          doc.setTextColor(150)
+          doc.setFont('helvetica', 'normal')
+          doc.text('*** End of Report ***', pageW / 2, footerTop + 8, { align: 'center' })
+        }
+
+        // Page number
+        doc.setFontSize(7)
+        doc.setTextColor(150)
+        doc.text(`Page ${pageNum}`, pageW - margin, footerTop + 5, { align: 'right' })
+      }
+
+      cursorY = drawHeader()
+
+      // ═══════════════════════════════════════════════════════
+      // REPORT TITLE LINE
+      // ═══════════════════════════════════════════════════════
+      doc.setFontSize(11)
+      doc.setTextColor(79, 70, 229)
+      doc.setFont('helvetica', 'bold')
+      doc.text('LABORATORY TEST REPORT', pageW / 2, cursorY, { align: 'center' })
+      cursorY += 8
+
+      // ═══════════════════════════════════════════════════════
+      // PATIENT INFO BOX
+      // ═══════════════════════════════════════════════════════
+      doc.setFillColor(248, 250, 252)
+      doc.roundedRect(margin, cursorY - 2, pageW - margin * 2, 20, 2, 2, 'F')
+
+      doc.setFontSize(9)
       doc.setTextColor(60, 60, 60)
       doc.setFont('helvetica', 'normal')
-      doc.text(`Patient Name: ${orderData.patient_name || 'N/A'}`, 15, 35)
-      doc.text(`Patient ID: ${orderData.patient_code || 'N/A'}`, 15, 42)
-      doc.text(`Requested By: ${orderData.requested_by || 'Self Referal'}`, 130, 35)
-      doc.text(`Report Date: ${new Date().toLocaleString('en-IN')}`, 130, 42)
-      
-      doc.setFontSize(12)
+      doc.text(`Patient Name: `, margin + 4, cursorY + 5)
+      doc.setFont('helvetica', 'bold')
+      doc.text(`${orderData.patient_name || 'N/A'}`, margin + 32, cursorY + 5)
+
+      doc.setFont('helvetica', 'normal')
+      doc.text(`Patient ID: ${orderData.patient_code || 'N/A'}`, margin + 4, cursorY + 12)
+      doc.text(`Requested By: ${orderData.requested_by || 'Self Referral'}`, pageW / 2, cursorY + 5)
+      doc.text(`Report Date: ${new Date().toLocaleString('en-IN')}`, pageW / 2, cursorY + 12)
+      cursorY += 24
+
+      // Investigation title
+      doc.setFontSize(11)
       doc.setTextColor(20, 20, 20)
       doc.setFont('helvetica', 'bold')
-      doc.text(`Investigation: ${orderData.test_name}`, 15, 55)
+      doc.text(`Investigation: ${orderData.test_name}`, margin, cursorY)
+      cursorY += 5
 
+      // ═══════════════════════════════════════════════════════
+      // RESULTS TABLE
+      // ═══════════════════════════════════════════════════════
       const tableData = testConfig.parameters.map(p => {
         const val = resObj[p.id] || ''
         const numVal = parseFloat(val)
@@ -345,12 +541,14 @@ function ResultPanel({ order, onClose, onUpdated }) {
       })
 
       autoTable(doc, {
-        startY: 60,
+        startY: cursorY,
         head: [['Parameter', 'Result', 'Flag', 'Unit', 'Bio. Reference']],
         body: tableData,
         theme: 'grid',
-        headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: 'bold' },
-        styles: { fontSize: 9 },
+        margin: { left: margin, right: margin, bottom: 35 }, // Reserve space for footer
+        headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 },
+        styles: { fontSize: 8.5, cellPadding: 3 },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
         didDrawCell: function (data) {
           if (data.column.index === 2 && data.cell.text[0]) {
              if (data.cell.text[0] === 'HIGH') data.cell.styles.textColor = [220, 38, 38]
@@ -360,12 +558,12 @@ function ResultPanel({ order, onClose, onUpdated }) {
         }
       })
 
-      const finalY = doc.lastAutoTable.finalY || 100
-      doc.setFontSize(10)
-      doc.setTextColor(100)
-      doc.setFont('helvetica', 'normal')
-      doc.text('*** End of Report ***', 105, finalY + 15, { align: 'center' })
-      doc.text('Lab In-charge Signature', 170, finalY + 30, { align: 'center' })
+      // Draw footer on all pages
+      const totalPages = doc.internal.getNumberOfPages()
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i)
+        drawFooter(i, totalPages)
+      }
       
       const patientName = orderData.patient_name || orderData.patient_id || 'Patient'
       if (download && typeof doc.save === 'function') {
@@ -401,6 +599,47 @@ function ResultPanel({ order, onClose, onUpdated }) {
       alert('Error sending email: ' + e.message)
     } finally {
       setEmailing(false)
+    }
+  }
+
+  const handleWhatsApp = async () => {
+    // 1. Get the phone number first
+    const phone = order.patient_phone || prompt('Enter patient mobile number (with country code, e.g., 919876543210):', '91')
+    if (!phone) return
+
+    // Pre-open the popup window to avoid adblocker/popup-blocker interference
+    const popup = window.open('', '_blank')
+    if (!popup) {
+      alert('Please allow popups in your browser to use WhatsApp sharing.')
+      return
+    }
+
+    setWhatsappSending(true)
+    try {
+      // 2. Generate and download the PDF automatically
+      const doc = generatePDF(order, results, false)
+      if (!doc) throw new Error('PDF Generation failed')
+      
+      const fileName = `${(order.patient_name || 'Patient').replace(/\s+/g, '_')}_LabReport.pdf`
+      doc.save(fileName)
+      
+      // 3. Open WhatsApp Web to the specific number with a pre-filled message
+      const messageText = `Hello ${order.patient_name || 'Patient'},\n\nPlease find your laboratory test report for *${order.test_name}* attached.`
+      const waLink = `https://wa.me/${phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(messageText)}`
+      
+      popup.location.href = waLink
+      
+      // Alert instruction so the user knows what to do
+      setTimeout(() => {
+        alert('The PDF has been downloaded to your computer. Please drag and drop it into the WhatsApp window that just opened!')
+      }, 500)
+
+    } catch (e) {
+      console.error(e)
+      popup.close()
+      alert('Error preparing WhatsApp message: ' + e.message)
+    } finally {
+      setWhatsappSending(false)
     }
   }
 
@@ -486,16 +725,19 @@ function ResultPanel({ order, onClose, onUpdated }) {
             )}
             {isCompleted && (
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.5rem' }}>
-                <button className="btn btn-secondary w-full" style={{ justifyContent: 'center' }} onClick={() => generatePDF(order, results)}>
-                  <Download size={14} /> Download PDF
+                <button className="btn" onClick={handleWhatsApp} disabled={whatsappSending} style={{ justifyContent: 'center', background: '#25D366', color: '#fff', borderColor: '#25D366', flex: 1 }}>
+                  {whatsappSending ? <Loader size={14} className="spin" /> : <MessageCircle size={14} />} WhatsApp
+                </button>
+                <button className="btn btn-secondary" style={{ justifyContent: 'center', flex: 1 }} onClick={() => generatePDF(order, results)}>
+                  <Download size={14} /> PDF
                 </button>
                 <button 
-                  className="btn btn-primary w-full" 
-                  style={{ justifyContent: 'center', background: '#3b82f6', borderColor: '#3b82f6' }} 
+                  className="btn btn-primary" 
+                  style={{ justifyContent: 'center', background: '#3b82f6', borderColor: '#3b82f6', flex: 1 }} 
                   onClick={handleSendEmail}
                   disabled={emailing}
                 >
-                  {emailing ? <Loader size={14} className="spin" /> : <Mail size={14} />} Send Email
+                  {emailing ? <Loader size={14} className="spin" /> : <Mail size={14} />} Email
                 </button>
               </div>
             )}

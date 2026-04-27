@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Search, Plus, BedDouble, X, Loader, CheckCircle, AlertCircle, ClipboardList, FileText, Pen, FolderOpen, Trash2, ChevronRight } from 'lucide-react'
 import { api, SERVER_URL } from '../api'
 import FormViewer from '../components/FormViewer'
+import DischargeEditor from '../components/DischargeEditor'
 
 const BED_STATUS = {
   occupied: { color: '#6366f1', bg: 'var(--primary-50)', border: 'var(--primary-200)', label: 'Occupied' },
@@ -642,8 +643,29 @@ export default function IPD() {
         </div>
       )}
 
-      {/* Full-screen FormViewer — patient forms & discharge summaries unified */}
-      {activeForm && selected && (
+      {/* Full-screen DischargeEditor for discharge summaries */}
+      {activeForm && activeForm.type === 'discharge' && selected && (
+        <DischargeEditor
+          formInstance={{ ...activeForm, patient_name: selected.patient_name }}
+          patientData={{
+            ...(selectedPatient || {}),
+            name:        selectedPatient?.name        || selected.patient_name,
+            id:          selectedPatient?.id          || selected.patient_id,
+            age:         selectedPatient?.age         || selected.age,
+            gender:      selectedPatient?.gender      || selected.gender || '',
+            phone:       selectedPatient?.phone       || selected.phone  || '',
+            department:  selectedPatient?.department  || selected.ward   || '',
+            doctor_name: selected.doctor_name         || selectedPatient?.doctor_name || '',
+            admitted_at: selectedPatient?.admitted_at || selected.admitted_at,
+            bed_id:      selected.id,
+          }}
+          onClose={() => setActiveForm(null)}
+          onSaved={(html) => handleDischargeSummarySaved([], 'in-progress')}
+        />
+      )}
+
+      {/* Full-screen FormViewer — patient forms only */}
+      {activeForm && activeForm.type !== 'discharge' && selected && (
         <FormViewer
           formInstance={{ ...activeForm, patient_name: selected.patient_name, type: activeForm.type || 'form' }}
           patientData={{
@@ -659,11 +681,8 @@ export default function IPD() {
             bed_id:      selected.id,
           }}
           onClose={() => setActiveForm(null)}
-          onAnnotationsSaved={activeForm.type === 'discharge' ? handleDischargeSummarySaved : handleAnnotationsSaved}
-          allForms={[
-            ...(patientForms || []).map(f => ({ ...f, type: 'form', patient_name: selected.patient_name })),
-            ...(patientDischargeSummaries || []).map(s => ({ ...s, type: 'discharge', patient_name: selected.patient_name }))
-          ]}
+          onAnnotationsSaved={handleAnnotationsSaved}
+          allForms={(patientForms || []).map(f => ({ ...f, type: 'form', patient_name: selected.patient_name }))}
           onSwitchForm={(f) => setActiveForm(f)}
         />
       )}
