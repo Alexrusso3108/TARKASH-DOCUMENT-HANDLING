@@ -134,137 +134,6 @@ function NewBillModal({ patients, onClose, onSave }) {
   )
 }
 
-function IPBillingModal({ patient, onClose, onSave }) {
-  const [charges, setCharges] = useState({
-    roomRent: 0,
-    nursing: 0,
-    consultation: 0,
-    pharmacy: 0,
-    laboratory: 0,
-    radiology: 0,
-    otCharges: 0,
-    miscellaneous: 0,
-  })
-  const [concession, setConcession] = useState(0)
-  const [advance, setAdvance] = useState(0)
-  const [paymentMethod, setPaymentMethod] = useState('Cash')
-  const [saving, setSaving] = useState(false)
-
-  const h = (k, v) => setCharges(c => ({ ...c, [k]: Number(v) || 0 }))
-
-  const totalGross = Object.values(charges).reduce((a, b) => a + b, 0)
-  const netPayable = Math.max(0, totalGross - concession - advance)
-
-  const handleSubmit = async () => {
-    setSaving(true)
-    try {
-      const bill = await api.createBilling({
-        patient_id: patient.id,
-        type: 'IPD',
-        total_amount: totalGross,
-        paid_amount: netPayable > 0 ? netPayable : 0,
-        payment_method: paymentMethod,
-        notes: JSON.stringify({ breakdown: charges, concession, advance, netPayable, isDetailedIP: true })
-      })
-      onSave(bill)
-      onClose()
-    } catch (e) { 
-      alert('Failed to generate IP Bill: ' + e.message) 
-    } finally { 
-      setSaving(false) 
-    }
-  }
-
-  return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal modal-lg" style={{ maxWidth: 800 }}>
-        <div className="modal-header" style={{ borderBottom: '1px solid var(--gray-200)', paddingBottom: '1rem', marginBottom: '1rem' }}>
-          <div>
-            <h4 style={{ color: 'var(--gray-900)', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Calculator size={18} color="var(--primary-600)" /> Final IP Discharge Bill
-            </h4>
-            <p style={{ fontSize: '0.8rem', color: 'var(--gray-500)', marginTop: 4 }}>
-              Patient: <strong>{patient.name} ({patient.id})</strong> | Ward: {patient.ward}
-            </p>
-          </div>
-          <button className="btn btn-ghost btn-icon" onClick={onClose}><X size={18} /></button>
-        </div>
-        
-        <div className="modal-body" style={{ maxHeight: '65vh', overflowY: 'auto', paddingRight: '0.5rem' }}>
-          <div className="grid grid-2" style={{ gap: '1.5rem', gridTemplateColumns: '1fr 340px' }}>
-            {/* Left Column: Charges Breakdown */}
-            <div>
-              <h5 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--gray-700)', marginBottom: '1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Itemized Charge Breakdown (Rs)</h5>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-                {[
-                  { key: 'roomRent', label: 'Room Rent / Bed Charges' },
-                  { key: 'nursing', label: 'Nursing & Service Charges' },
-                  { key: 'consultation', label: 'Doctor Consultation Fees' },
-                  { key: 'otCharges', label: 'OT & Procedure Charges' },
-                  { key: 'pharmacy', label: 'Pharmacy & Consumables' },
-                  { key: 'laboratory', label: 'Laboratory Investigations' },
-                  { key: 'radiology', label: 'Radiology / Diagnostics' },
-                  { key: 'miscellaneous', label: 'Miscellaneous (Diet, Bio-Waste)' },
-                ].map(item => (
-                  <div key={item.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', borderBottom: '1px solid var(--gray-100)', paddingBottom: '0.5rem' }}>
-                    <label style={{ fontSize: '0.9rem', color: 'var(--gray-800)', fontWeight: 500, flex: 1 }}>{item.label}</label>
-                    <input className="form-input" type="number" min="0" style={{ width: 120, textAlign: 'right', padding: '0.3rem 0.5rem', fontWeight: 600, fontSize: '0.9rem' }} value={charges[item.key] || ''} onChange={e => h(item.key, e.target.value)} placeholder="0" />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Right Column: Adjustments & Total */}
-            <div style={{ background: 'var(--gray-50)', padding: '1.5rem', borderRadius: 'var(--radius-xl)', border: '1px solid var(--gray-200)', alignSelf: 'start' }}>
-              <h5 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--gray-700)', marginBottom: '1.25rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Settlement Summary</h5>
-              
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem', fontSize: '1rem' }}>
-                <span style={{ color: 'var(--gray-600)' }}>Total Gross Amount</span>
-                <span style={{ fontWeight: 800, color: 'var(--gray-900)' }}>Rs {totalGross.toLocaleString()}</span>
-              </div>
-              
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', marginBottom: '1rem' }}>
-                <label style={{ fontSize: '0.9rem', color: 'var(--gray-600)' }}>Discount / Concession</label>
-                <input className="form-input" type="number" min="0" style={{ width: 110, textAlign: 'right', padding: '0.4rem 0.6rem', borderColor: '#f59e0b', fontWeight: 700 }} value={concession || ''} onChange={e => setConcession(Number(e.target.value))} placeholder="0" />
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', marginBottom: '1.25rem' }}>
-                <label style={{ fontSize: '0.9rem', color: 'var(--gray-600)' }}>Advance Paid (Deposit)</label>
-                <input className="form-input" type="number" min="0" style={{ width: 110, textAlign: 'right', padding: '0.4rem 0.6rem', borderColor: '#10b981', fontWeight: 700 }} value={advance || ''} onChange={e => setAdvance(Number(e.target.value))} placeholder="0" />
-              </div>
-
-              <div style={{ height: 1, background: 'var(--gray-300)', margin: '1.25rem 0' }}></div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-                <span style={{ fontWeight: 800, fontSize: '1.15rem', color: 'var(--gray-900)' }}>Net Payable</span>
-                <span style={{ fontWeight: 900, fontSize: '1.5rem', color: netPayable > 0 ? '#dc2626' : '#10b981', letterSpacing: '-0.02em' }}>Rs {netPayable.toLocaleString()}</span>
-              </div>
-
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label" style={{ fontSize: '0.85rem' }}>Payment Method</label>
-                <select className="form-input form-select" style={{ fontWeight: 600 }} value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
-                  {['Cash', 'Card', 'UPI', 'Insurance/TPA', 'Cheque', 'NEFT'].map(m => <option key={m}>{m}</option>)}
-                </select>
-                {paymentMethod === 'Insurance/TPA' && (
-                  <div style={{ fontSize: '0.75rem', color: '#4338ca', marginTop: '0.5rem', fontWeight: 600, background: 'rgba(99,102,241,0.1)', padding: '0.5rem', borderRadius: 6 }}>
-                    This will be recorded as pending until TPA settlement is reconciled.
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="modal-footer" style={{ borderTop: '1px solid var(--gray-200)', marginTop: '1rem', paddingTop: '1.25rem' }}>
-          <button className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
-          <button className="btn btn-primary" onClick={handleSubmit} disabled={saving}>
-            {saving ? <Loader size={14} className="spin" /> : <CheckCircle size={14} />} Finalize & Generate Bill
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 export default function Billing() {
   const [bills, setBills] = useState([])
@@ -308,20 +177,6 @@ export default function Billing() {
       const data = await api.getBilling(params)
       setBills(data)
 
-      // Fetch actual admitted IP patients from Ward/Beds
-      const allBeds = await api.getBeds()
-      const occupied = allBeds.filter(b => b.status === 'occupied')
-      
-      setIpQueue(occupied.map(b => ({
-        id: b.patient_id || 'Unknown',
-        bed_id: b.id,
-        name: b.patient_name || 'Unknown Patient',
-        ward: `${b.ward} (${b.id})`,
-        type: b.patient_id?.includes('INS') ? 'Insurance' : 'Cash', // Simple heuristic
-        doctor: b.doctor_name || 'General Physician',
-        step: b.discharge_step || 0,
-        status: b.discharge_status || 'Admitted'
-      })))
 
     } catch (e) { setError(e.message) } finally { setLoading(false) }
   }, [search, statusFilter])
@@ -352,30 +207,13 @@ export default function Billing() {
     <div className="animate-fadeInUp">
       <div className="page-header">
         <div>
-          <h1 className="page-title">Billing & Discharge</h1>
-          <p className="page-subtitle">Manage OP invoices and track IP discharge workflows</p>
+          <h1 className="page-title">OP Billing</h1>
+          <p className="page-subtitle">Manage outpatient invoices and payment collection</p>
         </div>
-        {activeTab === 'op' && (
-          <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={15} /> Generate Invoice</button>
-        )}
+        <button className="btn btn-primary" onClick={() => setShowModal(true)}><Plus size={15} /> Generate Invoice</button>
       </div>
 
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--gray-200)', marginBottom: '1.5rem', background: '#fff', borderRadius: 'var(--radius-lg)' }}>
-        <button 
-          onClick={() => setActiveTab('op')}
-          style={{ padding: '1rem 1.5rem', background: 'none', border: 'none', borderBottom: `2.5px solid ${activeTab === 'op' ? 'var(--primary-600)' : 'transparent'}`, color: activeTab === 'op' ? 'var(--primary-700)' : 'var(--gray-500)', fontWeight: activeTab === 'op' ? 700 : 500, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Receipt size={16} /> OP Billing Ledger
-        </button>
-        <button 
-          onClick={() => setActiveTab('ip')}
-          style={{ padding: '1rem 1.5rem', background: 'none', border: 'none', borderBottom: `2.5px solid ${activeTab === 'ip' ? 'var(--primary-600)' : 'transparent'}`, color: activeTab === 'ip' ? 'var(--primary-700)' : 'var(--gray-500)', fontWeight: activeTab === 'ip' ? 700 : 500, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <FileText size={16} /> IP Billing & Discharge Process
-        </button>
-      </div>
-
-      {activeTab === 'op' ? (
-        <>
-          <div className="grid grid-4" style={{ gap: '1rem', marginBottom: '1.5rem' }}>
+      <div className="grid grid-4" style={{ gap: '1rem', marginBottom: '1.5rem' }}>
         {[
           { label: 'Total Invoices', val: bills.length, color: 'var(--gray-700)', bg: 'var(--gray-50)' },
           { label: 'Revenue Collected', val: `Rs ${(totalRevenue / 100000).toFixed(1)}L`, color: '#059669', bg: 'rgba(16,185,129,0.06)' },
@@ -453,89 +291,9 @@ export default function Billing() {
           </table>
         </div>
         </div>
-        </>
-      ) : (
-        <div className="grid" style={{ gap: '1.5rem' }}>
-          {ipQueue.map(p => (
-            <div key={p.id} style={{ background: '#fff', borderRadius: 'var(--radius-xl)', padding: '1.5rem', border: '1px solid var(--gray-200)', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--gray-900)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>{p.name} <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '0.2rem 0.5rem', borderRadius: 999, background: 'var(--gray-100)', color: 'var(--gray-700)' }}>{p.id}</span></h3>
-                  <div style={{ fontSize: '0.85rem', color: 'var(--gray-500)', marginTop: '0.25rem', display: 'flex', gap: '1rem' }}>
-                    <span>Ward: <strong style={{ color: 'var(--gray-800)' }}>{p.ward}</strong></span>
-                    <span>Doctor: <strong>{p.doctor}</strong></span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', color: p.type === 'Insurance' ? '#4338ca' : '#059669', fontWeight: 700 }}>
-                      {p.type === 'Insurance' ? <ShieldCheck size={14}/> : <CreditCard size={14}/>} {p.type} Patient
-                    </span>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  {p.step >= 4 && p.step <= 5 && (
-                    <button 
-                      className="btn btn-sm btn-secondary" 
-                      style={{ background: '#fff', borderColor: 'var(--primary-600)', color: 'var(--primary-700)' }}
-                      onClick={() => setSelectedIpBillPatient(p)}
-                    >
-                      <Calculator size={14} /> Generate IP Bill
-                    </button>
-                  )}
-                  <button 
-                    className={`btn btn-sm ${p.step >= IP_STEPS.length - 1 ? 'btn-ghost' : 'btn-primary'}`} 
-                    disabled={p.step >= IP_STEPS.length - 1}
-                    onClick={() => advanceIpWorkflow(p.bed_id, p.step)}
-                  >
-                    {p.step >= IP_STEPS.length - 1 ? 'Discharged' : 'Advance Workflow'} <ArrowRight size={14} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Progress Stepper */}
-              <div style={{ display: 'flex', position: 'relative', marginTop: '1rem', gap: '0.5rem' }}>
-                {IP_STEPS.map((stepName, idx) => {
-                  const isCompleted = idx < p.step;
-                  const isActive = idx === p.step;
-                  let stepColor = isCompleted ? '#10b981' : isActive ? 'var(--primary-600)' : 'var(--gray-200)';
-                  
-                  return (
-                    <div key={stepName} style={{ flex: 1, position: 'relative' }}>
-                      <div style={{ height: 6, background: stepColor, borderRadius: 999, marginBottom: '0.5rem', transition: 'background 0.3s' }}></div>
-                      <div style={{ fontSize: '0.7rem', fontWeight: isActive ? 800 : 600, color: isCompleted || isActive ? 'var(--gray-800)' : 'var(--gray-400)', lineHeight: 1.2 }}>{stepName}</div>
-                                     {/* Workflow Details per Step */}
-                      {isActive && (
-                        <div className="animate-fadeInUp" style={{ background: '#f8fafc', padding: '0.75rem', borderRadius: 'var(--radius-lg)', marginTop: '0.75rem', border: '1px solid var(--gray-200)' }}>
-                          {idx === 0 && <span style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}><Stethoscope size={12}/> Treating doctor advises discharge. Ward in-charge notified.</span>}
-                          {idx === 1 && <span style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}><Activity size={12}/> Compiling medical records and final clinical notes into Discharge Summary.</span>}
-                          {idx === 2 && <span style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}><Pill size={12}/> Returning unused meds and generating final pharmacy clearance bill.</span>}
-                          {idx === 3 && <span style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}><FlaskConical size={12}/> Verifying all pending lab tests are completed and reports attached.</span>}
-                          {idx === 4 && <span style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}><Receipt size={12}/> Billing department calculating final invoice including bed, meds, and tests.</span>}
-                          {idx === 5 && (
-                            <div style={{ fontSize: '0.75rem', color: 'var(--gray-700)' }}>
-                              <p style={{ margin: '0 0 0.5rem 0', fontWeight: 600 }}>Billing & Settlement</p>
-                              {p.type === 'Cash' ? (
-                                <span style={{ color: '#059669', background: 'rgba(16,185,129,0.1)', padding: '0.15rem 0.4rem', borderRadius: 4 }}>Settle final bill amount directly via Cash/Card/UPI.</span>
-                              ) : (
-                                <span style={{ color: '#4338ca', background: 'rgba(99,102,241,0.1)', padding: '0.15rem 0.4rem', borderRadius: 4 }}>Awaiting TPA approval for claim settlement (2-6 hours).</span>
-                              )}
-                            </div>
-                          )}
-                          {idx === 6 && <span style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}><CheckCircle size={12}/> All clearances received. Final gate pass issued. Room vacated.</span>}
-                        </div>
-                      )}       )}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
       {selectedBill && <BillModal bill={selectedBill} onClose={() => setSelectedBill(null)} onMarkPaid={handleMarkPaid} />}
       {showModal && <NewBillModal patients={patients} onClose={() => setShowModal(false)} onSave={handleSave} />}
-      {selectedIpBillPatient && <IPBillingModal patient={selectedIpBillPatient} onClose={() => setSelectedIpBillPatient(null)} onSave={(bill) => {
-        handleSave(bill);
-        setActiveTab('op'); // Switch to OP tab to view the generated bill
-      }} />}
     </div>
   )
 }
