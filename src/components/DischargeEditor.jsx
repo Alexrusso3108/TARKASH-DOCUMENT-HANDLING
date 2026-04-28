@@ -321,86 +321,32 @@ export default function DischargeEditor({ formInstance, patientData, onClose, on
     finally { setSaving(false) }
   }
 
-  // ── Download as PDF via browser print ────────────────────────────────────
+  // ── Download as PDF via html2pdf ──────────────────────────────────────────
   const handleDownload = useCallback(async () => {
     if (!editorRef.current) return
     setDownloading(true)
     try {
-      const { jsPDF } = await import('jspdf')
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-      const pageW = doc.internal.pageSize.getWidth()
-      const pageH = doc.internal.pageSize.getHeight()
-      const margin = 15
-      const lineHeight = 6
-      const usableW = pageW - margin * 2
-      let y = margin
-
-      doc.setFont('helvetica', 'normal')
-      doc.setFontSize(11)
-      doc.setTextColor(20, 20, 20)
-
-      // Walk the editor DOM to extract styled text
-      const walker = (node, styles = {}) => {
-        if (node.nodeType === Node.TEXT_NODE) {
-          const text = node.textContent
-          if (!text) return
-
-          // Apply styles
-          const isBold      = styles.bold
-          const isItalic    = styles.italic
-          const isUnderline = styles.underline
-          const fontStyle   = isBold && isItalic ? 'bolditalic' : isBold ? 'bold' : isItalic ? 'italic' : 'normal'
-          doc.setFont('helvetica', fontStyle)
-          if (isUnderline) doc.setDrawColor(20, 20, 20)
-
-          const size = parseFloat(styles.fontSize) || 11
-          doc.setFontSize(size)
-
-          const lines = doc.splitTextToSize(text, usableW)
-          for (const line of lines) {
-            if (y + lineHeight > pageH - margin) { doc.addPage(); y = margin }
-            const align = styles.textAlign || 'left'
-            const x = align === 'center' ? pageW / 2 : align === 'right' ? pageW - margin : margin
-            const opts = align === 'center' ? { align: 'center' } : align === 'right' ? { align: 'right' } : {}
-            doc.text(line, x, y, opts)
-            if (isUnderline) {
-              const tw = doc.getTextWidth(line)
-              doc.line(x, y + 0.5, x + tw, y + 0.5)
-            }
-            y += lineHeight
-          }
-        } else if (node.nodeType === Node.ELEMENT_NODE) {
-          const tag = node.tagName.toLowerCase()
-          const cs = window.getComputedStyle(node)
-          const childStyles = {
-            bold:      styles.bold || cs.fontWeight >= 600 || tag === 'b' || tag === 'strong',
-            italic:    styles.italic || tag === 'i' || tag === 'em' || cs.fontStyle === 'italic',
-            underline: styles.underline || tag === 'u' || cs.textDecoration?.includes('underline'),
-            fontSize:  parseFloat(cs.fontSize) * 0.75 || styles.fontSize, // px to pt
-            textAlign: cs.textAlign || styles.textAlign,
-          }
-
-          // Block elements: add newline before
-          const isBlock = ['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li'].includes(tag)
-          if (isBlock && y > margin) y += lineHeight * 0.3
-
-          for (const child of node.childNodes) walker(child, childStyles)
-
-          // Block elements: add newline after
-          if (isBlock) y += lineHeight * 0.3
-          if (tag === 'br') y += lineHeight
-        }
-      }
-
-      for (const child of editorRef.current.childNodes) {
-        walker(child, {})
-        y += lineHeight * 0.1
-      }
-
+      const html2pdf = (await import('html2pdf.js')).default
       const name = patientData?.name
         ? `Discharge Summary - ${patientData.name}.pdf`
         : `${formInstance.template_name || 'Discharge Summary'}.pdf`
-      doc.save(name.replace(/[/\\:*?"<>|]/g, '_'))
+
+      const opt = {
+        margin:       [15, 15, 15, 15],
+        filename:     name.replace(/[/\\:*?"<>|]/g, '_'),
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { scale: 2, useCORS: true, letterRendering: true },
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      }
+
+      // Create a temporary clone of the editor to remove any UI artifacts
+      const clone = editorRef.current.cloneNode(true)
+      clone.style.boxShadow = 'none'
+      clone.style.margin = '0'
+      clone.style.padding = '10mm'
+      clone.style.width = '190mm' // Adjust width for A4
+
+      await html2pdf().from(clone).set(opt).save()
     } catch (e) {
       alert('Download failed: ' + e.message)
       console.error(e)
