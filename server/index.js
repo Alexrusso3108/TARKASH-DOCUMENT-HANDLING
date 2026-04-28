@@ -314,11 +314,19 @@ app.get('/api/patients', requireAuth, async (req, res) => {
 
     if (search) {
       params.push(`%${search}%`)
-      query += ` AND (p.name ILIKE $${params.length} OR p.id ILIKE $${params.length} OR p.department ILIKE $${params.length})`
+      const sIdx1 = params.length
+      params.push(`%${search}%`)
+      const sIdx2 = params.length
+      params.push(`%${search}%`)
+      const sIdx3 = params.length
+      query += ` AND (p.name ILIKE $${sIdx1} OR p.id ILIKE $${sIdx2} OR p.department ILIKE $${sIdx3})`
     }
     if (filter !== 'All') {
       params.push(filter)
-      query += ` AND (p.status = $${params.length} OR p.admission_type = $${params.length})`
+      const fIdx1 = params.length
+      params.push(filter)
+      const fIdx2 = params.length
+      query += ` AND (p.status = $${fIdx1} OR p.admission_type = $${fIdx2})`
     }
     query += ' ORDER BY p.admitted_at DESC'
     const { rows } = await pool.query(query, params)
@@ -389,7 +397,7 @@ app.get('/api/doctors', requireAuth, async (req, res) => {
     const hid = req.user.hospitalId
     let query = 'SELECT * FROM doctors WHERE hospital_id = $1'
     const params = [hid]
-    if (search) { params.push(`%${search}%`); query += ` AND (name ILIKE $${params.length} OR department ILIKE $${params.length})` }
+    if (search) { params.push(`%${search}%`); const d1=params.length; params.push(`%${search}%`); const d2=params.length; query += ` AND (name ILIKE $${d1} OR department ILIKE $${d2})` }
     if (status !== 'All') { params.push(status); query += ` AND status = $${params.length}` }
     if (dept !== 'All') { params.push(dept); query += ` AND department = $${params.length}` }
     query += ' ORDER BY name'
@@ -458,7 +466,7 @@ app.get('/api/beds', requireAuth, async (req, res) => {
       WHERE b.hospital_id = $1`
     const params = [hid]
     if (ward !== 'All') { params.push(ward); query += ` AND b.ward = $${params.length}` }
-    if (search) { params.push(`%${search}%`); query += ` AND (p.name ILIKE $${params.length} OR b.id ILIKE $${params.length})` }
+    if (search) { params.push(`%${search}%`); const b1=params.length; params.push(`%${search}%`); const b2=params.length; query += ` AND (p.name ILIKE $${b1} OR b.id ILIKE $${b2})` }
     query += ' ORDER BY b.id'
     const { rows } = await pool.query(query, params)
     res.json(rows)
@@ -525,7 +533,7 @@ app.get('/api/opd', requireAuth, async (req, res) => {
     const params = [hid]
     if (date) { params.push(date); query += ` AND o.visit_date = $${params.length}` }
     if (status !== 'All') { params.push(status); query += ` AND o.status = $${params.length}` }
-    if (search) { params.push(`%${search}%`); query += ` AND (p.name ILIKE $${params.length} OR o.token ILIKE $${params.length})` }
+    if (search) { params.push(`%${search}%`); const o1=params.length; params.push(`%${search}%`); const o2=params.length; query += ` AND (p.name ILIKE $${o1} OR o.token ILIKE $${o2})` }
     query += ' ORDER BY o.created_at DESC'
     const { rows } = await pool.query(query, params)
     res.json(rows)
@@ -599,7 +607,7 @@ app.get('/api/notes', requireAuth, async (req, res) => {
     const params = [hid]
     if (status !== 'All') { params.push(status); query += ` AND n.status = $${params.length}` }
     if (priority !== 'All') { params.push(priority); query += ` AND n.priority = $${params.length}` }
-    if (search) { params.push(`%${search}%`); query += ` AND (p.name ILIKE $${params.length} OR n.note_type ILIKE $${params.length})` }
+    if (search) { params.push(`%${search}%`); const n1=params.length; params.push(`%${search}%`); const n2=params.length; query += ` AND (p.name ILIKE $${n1} OR n.note_type ILIKE $${n2})` }
     query += ' ORDER BY n.created_at DESC'
     const { rows } = await pool.query(query, params)
     res.json(rows)
@@ -664,7 +672,13 @@ app.get('/api/lab', requireAuth, async (req, res) => {
     const params = [hid]
     if (status !== 'All') { params.push(status); query += ` AND l.status = $${params.length}` }
     if (priority !== 'All') { params.push(priority); query += ` AND l.priority = $${params.length}` }
-    if (search) { params.push(`%${search}%`); query += ` AND (p.name ILIKE $${params.length} OR l.test_name ILIKE $${params.length})` }
+    if (search) {
+      params.push(`%${search}%`)
+      const pIdx1 = params.length
+      params.push(`%${search}%`)
+      const pIdx2 = params.length
+      query += ` AND (p.name ILIKE $${pIdx1} OR l.test_name ILIKE $${pIdx2})`
+    }
     query += ' ORDER BY l.ordered_at DESC'
     const { rows } = await pool.query(query, params)
     res.json(rows)
@@ -765,7 +779,7 @@ app.get('/api/radiology', requireAuth, async (req, res) => {
       WHERE r.hospital_id = $1`
     const params = [hid]
     if (status !== 'All') { params.push(status); query += ` AND r.status = $${params.length}` }
-    if (search) { params.push(`%${search}%`); query += ` AND (p.name ILIKE $${params.length} OR r.study_type ILIKE $${params.length})` }
+    if (search) { params.push(`%${search}%`); const r1=params.length; params.push(`%${search}%`); const r2=params.length; query += ` AND (p.name ILIKE $${r1} OR r.study_type ILIKE $${r2})` }
     query += ' ORDER BY r.ordered_at DESC'
     const { rows } = await pool.query(query, params)
     res.json(rows)
@@ -830,7 +844,7 @@ app.get('/api/discharge-templates', requireAuth, async (req, res) => {
               WHERE is_active = TRUE AND hospital_id = $1`
     const params = [req.user.hospitalId]
     if (category) { params.push(category); q += ` AND type = $${params.length}` }
-    if (search)   { params.push(`%${search}%`); q += ` AND (name ILIKE $${params.length} OR description ILIKE $${params.length})` }
+    if (search)   { params.push(`%${search}%`); const ds1=params.length; params.push(`%${search}%`); const ds2=params.length; q += ` AND (name ILIKE $${ds1} OR description ILIKE $${ds2})` }
     q += ' ORDER BY created_at DESC'
     const { rows } = await pool.query(q, params)
     res.json(rows)
@@ -1016,7 +1030,7 @@ app.get('/api/pharmacy', requireAuth, async (req, res) => {
     let query = 'SELECT * FROM pharmacy_inventory WHERE hospital_id = $1'
     const params = [hid]
     if (status !== 'All') { params.push(status); query += ` AND status = $${params.length}` }
-    if (search) { params.push(`%${search}%`); query += ` AND (name ILIKE $${params.length} OR category ILIKE $${params.length})` }
+    if (search) { params.push(`%${search}%`); const ph1=params.length; params.push(`%${search}%`); const ph2=params.length; query += ` AND (name ILIKE $${ph1} OR category ILIKE $${ph2})` }
     query += ' ORDER BY name'
     const { rows } = await pool.query(query, params)
     res.json(rows)
@@ -1066,7 +1080,7 @@ app.get('/api/billing', requireAuth, async (req, res) => {
       WHERE b.hospital_id = $1`
     const params = [hid]
     if (status !== 'All') { params.push(status); query += ` AND b.status = $${params.length}` }
-    if (search) { params.push(`%${search}%`); query += ` AND (p.name ILIKE $${params.length} OR b.id ILIKE $${params.length})` }
+    if (search) { params.push(`%${search}%`); const bi1=params.length; params.push(`%${search}%`); const bi2=params.length; query += ` AND (p.name ILIKE $${bi1} OR b.id ILIKE $${bi2})` }
     query += ' ORDER BY b.created_at DESC'
     const { rows } = await pool.query(query, params)
     res.json(rows)
@@ -1208,7 +1222,7 @@ app.get('/api/forms/templates', requireAuth, async (req, res) => {
     let q = 'SELECT * FROM form_templates WHERE is_active = TRUE AND hospital_id = $1'
     const params = [hospitalId]
     if (category !== 'All') { params.push(category); q += ` AND category = $${params.length}` }
-    if (search) { params.push(`%${search}%`); q += ` AND (name ILIKE $${params.length} OR description ILIKE $${params.length})` }
+    if (search) { params.push(`%${search}%`); const ft1=params.length; params.push(`%${search}%`); const ft2=params.length; q += ` AND (name ILIKE $${ft1} OR description ILIKE $${ft2})` }
     q += ' ORDER BY created_at DESC'
     const { rows } = await pool.query(q, params)
     res.json(rows)
