@@ -95,6 +95,11 @@ async function initDB() {
     // 2. Run forms / alterations
     const safeMigrations = [
       `DO $m$ BEGIN ALTER TABLE patients ADD COLUMN hospital_id INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
+      `DO $m$ BEGIN ALTER TABLE patients ADD COLUMN email VARCHAR(100); EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
+      `DO $m$ BEGIN ALTER TABLE patients ADD COLUMN phone VARCHAR(20); EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
+      `DO $m$ BEGIN ALTER TABLE patients ADD COLUMN address TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
+      `DO $m$ BEGIN ALTER TABLE patients ADD COLUMN blood_group VARCHAR(5); EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
+      `DO $m$ BEGIN ALTER TABLE patients ADD COLUMN uhid VARCHAR(30); EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
       `DO $m$ BEGIN ALTER TABLE doctors ADD COLUMN hospital_id INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
       `DO $m$ BEGIN ALTER TABLE doctors ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
       `DO $m$ BEGIN ALTER TABLE beds ADD COLUMN hospital_id INTEGER; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
