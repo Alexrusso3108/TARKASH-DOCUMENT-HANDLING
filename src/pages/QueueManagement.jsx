@@ -288,6 +288,7 @@ export default function QueueManagement() {
   }
 
   return (
+    <>
     <div className="animate-fadeInUp">
       <div className="page-header">
         <div>
@@ -375,7 +376,8 @@ export default function QueueManagement() {
         </div>
       )}
 
-      {showModal && <TokenModal onClose={() => setShowModal(false)} onIssued={addToQueue} doctors={doctors} />}
     </div>
+    {showModal && <TokenModal onClose={() => setShowModal(false)} onIssued={addToQueue} doctors={doctors} />}
+    </>
   )
 }

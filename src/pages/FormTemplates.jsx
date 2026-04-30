@@ -194,6 +194,7 @@ export default function FormTemplates() {
   }
 
   return (
+    <>
     <div className="animate-fadeInUp">
       <div className="page-header">
         <div>
@@ -301,7 +302,8 @@ export default function FormTemplates() {
         </div>
       )}
 
-      {showModal && <UploadModal onClose={() => setShowModal(false)} onUploaded={t => setTemplates(prev => [t, ...prev])} token={token} />}
     </div>
+    {showModal && <UploadModal onClose={() => setShowModal(false)} onUploaded={t => setTemplates(prev => [t, ...prev])} token={token} />}
+    </>
   )
 }

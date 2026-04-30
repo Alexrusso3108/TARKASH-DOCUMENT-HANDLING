@@ -230,6 +230,7 @@ export default function StaffManagement() {
   const counts = ROLES.reduce((acc, r) => ({ ...acc, [r.value]: staff.filter(s => s.role === r.value).length }), {})
 
   return (
+    <>
     <div className="animate-fadeInUp">
       <div className="page-header">
         <div>
@@ -347,7 +348,8 @@ export default function StaffManagement() {
         </div>
       </div>
 
-      {showModal && <CreateStaffModal token={token} hospitalName={user?.hospital_name} onClose={() => setShowModal(false)} onCreated={handleCreated} />}
     </div>
+    {showModal && <CreateStaffModal token={token} hospitalName={user?.hospital_name} onClose={() => setShowModal(false)} onCreated={handleCreated} />}
+    </>
   )
 }

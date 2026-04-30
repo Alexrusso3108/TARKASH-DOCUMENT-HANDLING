@@ -162,6 +162,7 @@ export default function MedicalRecords() {
   )
 
   return (
+    <>
     <div className="animate-fadeInUp">
       <div className="page-header">
         <div>
@@ -339,7 +340,8 @@ export default function MedicalRecords() {
         </div>
       </div>
 
-      {showModal && <RequestModal patients={patients} onClose={() => setShowModal(false)} onSave={addRequest} />}
     </div>
+    {showModal && <RequestModal patients={patients} onClose={() => setShowModal(false)} onSave={addRequest} />}
+    </>
   )
 }

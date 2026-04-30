@@ -1173,6 +1173,7 @@ a:hover {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  overflow-y: auto;
 }
 
 .topbar {
@@ -1265,7 +1266,6 @@ a:hover {
 .page-content {
   flex: 1;
   padding: var(--space-8);
-  overflow-y: auto;
 }
 
 .page-header {
@@ -1417,12 +1417,10 @@ a:hover {
 @keyframes fadeInUp {
   from {
     opacity: 0;
-    transform: translateY(16px);
   }
 
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -1440,6 +1438,18 @@ a:hover {
   from {
     opacity: 0;
     transform: translateX(-16px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(32px);
   }
 
   to {

@@ -292,6 +292,7 @@ export default function Emergency() {
   }
 
   return (
+    <>
     <div className="animate-fadeInUp">
       <div className="page-header">
         <div>
@@ -346,7 +347,8 @@ export default function Emergency() {
         </div>
       )}
 
-      {showModal && <EmergencyRegisterModal onClose={() => setShowModal(false)} onSave={addPatient} />}
     </div>
+    {showModal && <EmergencyRegisterModal onClose={() => setShowModal(false)} onSave={addPatient} />}
+    </>
   )
 }

@@ -93,6 +93,7 @@ export const api = {
   createRadiology: (data) => request('POST', '/radiology', data),
   updateRadiology: (id, data) => request('PATCH', `/radiology/${id}`, data),
   uploadRadiologyResult: (id, file) => uploadPdf(`/radiology/${id}/upload-result`, file),
+  sendRadiologyEmail: (id, formData) => request('POST', `/radiology/${id}/email-result`, formData, true),
 
   // Pharmacy
   getPharmacy: (params = {}) => request('GET', `/pharmacy?${new URLSearchParams(params)}`),

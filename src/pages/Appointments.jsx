@@ -263,6 +263,7 @@ export default function Appointments() {
   const nextUp = appointments.find(a => a.status === 'checked-in')
 
   return (
+    <>
     <div className="animate-fadeInUp">
       <div className="page-header">
         <div>
@@ -437,7 +438,8 @@ export default function Appointments() {
         </div>
       </div>
 
-      {showModal && <BookModal onClose={() => setShowModal(false)} onSave={handleSave} doctors={doctors} />}
     </div>
+    {showModal && <BookModal onClose={() => setShowModal(false)} onSave={handleSave} doctors={doctors} />}
+    </>
   )
 }

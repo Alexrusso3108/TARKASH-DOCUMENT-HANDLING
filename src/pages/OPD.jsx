@@ -161,6 +161,7 @@ export default function OPD() {
   const nextUp = visits.find(v => v.status === 'waiting' || v.status === 'checked-in')
 
   return (
+    <>
     <div className="animate-fadeInUp">
       <div className="page-header">
         <div>
@@ -321,7 +322,8 @@ export default function OPD() {
         </div>
       </div>
 
-      {showModal && <BookModal onClose={() => setShowModal(false)} onSave={handleSave} doctors={doctors} />}
     </div>
+    {showModal && <BookModal onClose={() => setShowModal(false)} onSave={handleSave} doctors={doctors} />}
+    </>
   )
 }

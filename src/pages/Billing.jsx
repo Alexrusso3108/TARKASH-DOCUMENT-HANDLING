@@ -204,6 +204,7 @@ export default function Billing() {
   const totalPending = bills.filter(b => b.status === 'Pending').reduce((s, b) => s + Number(b.total_amount || 0) - Number(b.paid_amount || 0), 0)
 
   return (
+    <>
     <div className="animate-fadeInUp">
       <div className="page-header">
         <div>
@@ -292,8 +293,9 @@ export default function Billing() {
         </div>
         </div>
 
-      {selectedBill && <BillModal bill={selectedBill} onClose={() => setSelectedBill(null)} onMarkPaid={handleMarkPaid} />}
-      {showModal && <NewBillModal patients={patients} onClose={() => setShowModal(false)} onSave={handleSave} />}
     </div>
+    {selectedBill && <BillModal bill={selectedBill} onClose={() => setSelectedBill(null)} onMarkPaid={handleMarkPaid} />}
+    {showModal && <NewBillModal patients={patients} onClose={() => setShowModal(false)} onSave={handleSave} />}
+    </>
   )
 }

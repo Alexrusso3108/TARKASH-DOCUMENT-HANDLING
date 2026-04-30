@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Plus, FlaskConical, X, CheckCircle, Loader, UploadCloud, FileText, ExternalLink, Download, Mail, MessageCircle } from 'lucide-react'
+import { Search, Plus, FlaskConical, X, CheckCircle, Loader, UploadCloud, FileText, ExternalLink, Download, Mail } from 'lucide-react'
 import { api, SERVER_URL } from '../api'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { useAuth } from '../context/AuthContext'
 
 const LAB_TEST_CATALOG = {
   'CBC (Complete Blood Count)': { category: 'Haematology', parameters: [
@@ -295,15 +296,16 @@ function NewLabModal({ onClose, onSave, patients, doctors }) {
 
 // ─── Result Side Panel ────────────────────────────────────────────────────────
 function ResultPanel({ order, onClose, onUpdated }) {
+  const { isAdmin } = useAuth()
   const [results, setResults] = useState({})
   const [saving, setSaving] = useState(false)
   const [emailing, setEmailing] = useState(false)
-  const [whatsappSending, setWhatsappSending] = useState(false)
   const [hospitalInfo, setHospitalInfo] = useState(null)
   const [logoBase64, setLogoBase64] = useState(null)
   const [headerBase64, setHeaderBase64] = useState(null)
   const [footerBase64, setFooterBase64] = useState(null)
   const isCompleted = order.status === 'Completed'
+  const isEditable = !isCompleted || isAdmin
   const testConfig = LAB_TEST_CATALOG[order.test_name] || null
 
   useEffect(() => {
@@ -602,46 +604,6 @@ function ResultPanel({ order, onClose, onUpdated }) {
     }
   }
 
-  const handleWhatsApp = async () => {
-    // 1. Get the phone number first
-    const phone = order.patient_phone || prompt('Enter patient mobile number (with country code, e.g., 919876543210):', '91')
-    if (!phone) return
-
-    // Pre-open the popup window to avoid adblocker/popup-blocker interference
-    const popup = window.open('', '_blank')
-    if (!popup) {
-      alert('Please allow popups in your browser to use WhatsApp sharing.')
-      return
-    }
-
-    setWhatsappSending(true)
-    try {
-      // 2. Generate and download the PDF automatically
-      const doc = generatePDF(order, results, false)
-      if (!doc) throw new Error('PDF Generation failed')
-      
-      const fileName = `${(order.patient_name || 'Patient').replace(/\s+/g, '_')}_LabReport.pdf`
-      doc.save(fileName)
-      
-      // 3. Open WhatsApp Web to the specific number with a pre-filled message
-      const messageText = `Hello ${order.patient_name || 'Patient'},\n\nPlease find your laboratory test report for *${order.test_name}* attached.`
-      const waLink = `https://wa.me/${phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(messageText)}`
-      
-      popup.location.href = waLink
-      
-      // Alert instruction so the user knows what to do
-      setTimeout(() => {
-        alert('The PDF has been downloaded to your computer. Please drag and drop it into the WhatsApp window that just opened!')
-      }, 500)
-
-    } catch (e) {
-      console.error(e)
-      popup.close()
-      alert('Error preparing WhatsApp message: ' + e.message)
-    } finally {
-      setWhatsappSending(false)
-    }
-  }
 
   const handleSaveResults = async () => {
     setSaving(true)
@@ -661,8 +623,8 @@ function ResultPanel({ order, onClose, onUpdated }) {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 100, display: 'flex', justifyContent: 'flex-end' }} onClick={onClose}>
-      <div style={{ width: 520, background: '#fff', height: '100%', overflow: 'auto', boxShadow: 'var(--shadow-2xl)', padding: '2rem', animation: 'slideInLeft 250ms ease' }} onClick={e => e.stopPropagation()}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 200, display: 'flex', justifyContent: 'flex-end' }} onClick={onClose}>
+      <div style={{ width: 520, background: '#fff', height: '100%', overflow: 'auto', boxShadow: 'var(--shadow-2xl)', padding: '2rem', animation: 'slideInRight 250ms cubic-bezier(0.4,0,0.2,1)' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
           <div>
             <h4 style={{ color: 'var(--gray-900)', fontWeight: 700 }}>Lab Results Entry</h4>
@@ -699,7 +661,7 @@ function ResultPanel({ order, onClose, onUpdated }) {
                         step="0.01"
                         placeholder="Eg. 4.5"
                         value={results[p.id] || ''}
-                        disabled={isCompleted}
+                        disabled={!isEditable}
                         onChange={e => setResults(r => ({ ...r, [p.id]: e.target.value }))}
                       />
                     </td>
@@ -712,7 +674,7 @@ function ResultPanel({ order, onClose, onUpdated }) {
               </tbody>
             </table>
 
-            {!isCompleted && (
+            {isEditable && (
               <button 
                 className="btn btn-primary" 
                 style={{ width: '100%', marginTop: '1.5rem', justifyContent: 'center' }}
@@ -720,14 +682,11 @@ function ResultPanel({ order, onClose, onUpdated }) {
                 disabled={saving}
               >
                 {saving ? <Loader size={14} className="spin"/> : <FileText size={14}/>} 
-                Save & Generate PDF Report
+                {isCompleted ? 'Update Results & Regenerate PDF' : 'Save & Generate PDF Report'}
               </button>
             )}
             {isCompleted && (
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.5rem' }}>
-                <button className="btn" onClick={handleWhatsApp} disabled={whatsappSending} style={{ justifyContent: 'center', background: '#25D366', color: '#fff', borderColor: '#25D366', flex: 1 }}>
-                  {whatsappSending ? <Loader size={14} className="spin" /> : <MessageCircle size={14} />} WhatsApp
-                </button>
                 <button className="btn btn-secondary" style={{ justifyContent: 'center', flex: 1 }} onClick={() => generatePDF(order, results)}>
                   <Download size={14} /> PDF
                 </button>
@@ -827,6 +786,7 @@ export default function Laboratory() {
   }
 
   return (
+    <>
     <div className="animate-fadeInUp">
       <div className="page-header">
         <div>
@@ -923,8 +883,9 @@ export default function Laboratory() {
         </div>
       </div>
 
-      {selectedOrder && <ResultPanel order={selectedOrder} onClose={() => setSelectedOrder(null)} onUpdated={handleUpdated} />}
-      {showModal && <NewLabModal onClose={() => setShowModal(false)} onSave={handleSave} patients={patients} doctors={doctors} />}
     </div>
+    {selectedOrder && <ResultPanel order={selectedOrder} onClose={() => setSelectedOrder(null)} onUpdated={handleUpdated} />}
+    {showModal && <NewLabModal onClose={() => setShowModal(false)} onSave={handleSave} patients={patients} doctors={doctors} />}
+    </>
   )
 }

@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Plus, X, Loader, UploadCloud, FileText, ExternalLink, CheckCircle, ScanLine } from 'lucide-react'
+import { Search, Plus, X, Loader, UploadCloud, FileText, ExternalLink, CheckCircle, ScanLine, Download, Mail } from 'lucide-react'
 import { api, SERVER_URL } from '../api'
+import { jsPDF } from 'jspdf'
+import autoTable from 'jspdf-autotable'
+import { useAuth } from '../context/AuthContext'
 
 const STATUS_STYLES = {
   'Scheduled':   { bg: 'var(--gray-100)',             color: 'var(--gray-600)',  label: 'Scheduled' },
@@ -13,6 +16,228 @@ const PRIORITY_STYLES = {
   'Stat':    { bg: 'rgba(239,68,68,0.1)',  color: '#dc2626', label: 'STAT' },
   'Urgent':  { bg: 'rgba(245,158,11,0.1)', color: '#b45309', label: 'Urgent' },
   'Routine': { bg: 'var(--gray-100)',       color: 'var(--gray-600)', label: 'Routine' },
+}
+
+const RADIOLOGY_CATALOG = {
+  'Chest X-Ray (PA View)': { modality: 'X-Ray', bodyPart: 'Chest', fields: [
+    { id: 'heart_size', label: 'Heart Size', type: 'select', options: ['Normal', 'Enlarged', 'Cardiomegaly'] },
+    { id: 'lung_fields', label: 'Lung Fields', type: 'select', options: ['Clear', 'Infiltrates', 'Consolidation', 'Pleural Effusion', 'Pneumothorax'] },
+    { id: 'mediastinum', label: 'Mediastinum', type: 'select', options: ['Normal', 'Widened', 'Shifted'] },
+    { id: 'bones', label: 'Bones', type: 'select', options: ['Normal', 'Fracture', 'Osteopenia'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'Chest X-Ray (Lateral View)': { modality: 'X-Ray', bodyPart: 'Chest', fields: [
+    { id: 'retrosternal', label: 'Retrosternal Space', type: 'select', options: ['Clear', 'Opacified'] },
+    { id: 'retrocardiac', label: 'Retrocardiac Space', type: 'select', options: ['Clear', 'Opacified'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'Abdomen X-Ray (Erect)': { modality: 'X-Ray', bodyPart: 'Abdomen', fields: [
+    { id: 'bowel_gas', label: 'Bowel Gas Pattern', type: 'select', options: ['Normal', 'Dilated Loops', 'Air-Fluid Levels', 'Absent'] },
+    { id: 'free_air', label: 'Free Air', type: 'select', options: ['Absent', 'Present'] },
+    { id: 'calcifications', label: 'Calcifications', type: 'text' },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'Skull X-Ray': { modality: 'X-Ray', bodyPart: 'Head', fields: [
+    { id: 'vault', label: 'Skull Vault', type: 'select', options: ['Normal', 'Fracture', 'Lytic Lesion'] },
+    { id: 'sutures', label: 'Sutures', type: 'select', options: ['Normal', 'Widened', 'Fused'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'Spine X-Ray (Cervical)': { modality: 'X-Ray', bodyPart: 'Spine', fields: [
+    { id: 'alignment', label: 'Alignment', type: 'select', options: ['Normal', 'Spondylolisthesis', 'Subluxation'] },
+    { id: 'disc_spaces', label: 'Disc Spaces', type: 'select', options: ['Normal', 'Reduced', 'Osteophytes'] },
+    { id: 'fracture', label: 'Fracture', type: 'select', options: ['None', 'Present'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'Spine X-Ray (Lumbar)': { modality: 'X-Ray', bodyPart: 'Spine', fields: [
+    { id: 'alignment', label: 'Alignment', type: 'select', options: ['Normal', 'Scoliosis', 'Spondylolisthesis'] },
+    { id: 'disc_spaces', label: 'Disc Spaces', type: 'select', options: ['Normal', 'Reduced', 'Osteophytes'] },
+    { id: 'sacroiliac', label: 'Sacroiliac Joints', type: 'select', options: ['Normal', 'Sclerosis', 'Widened'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'Pelvis X-Ray': { modality: 'X-Ray', bodyPart: 'Pelvis', fields: [
+    { id: 'hip_joints', label: 'Hip Joints', type: 'select', options: ['Normal', 'Osteoarthritis', 'Fracture', 'Dislocation'] },
+    { id: 'sacroiliac', label: 'Sacroiliac Joints', type: 'select', options: ['Normal', 'Sclerosis'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'Knee X-Ray': { modality: 'X-Ray', bodyPart: 'Knee', fields: [
+    { id: 'joint_space', label: 'Joint Space', type: 'select', options: ['Normal', 'Reduced', 'Osteophytes'] },
+    { id: 'alignment', label: 'Alignment', type: 'select', options: ['Normal', 'Varus', 'Valgus'] },
+    { id: 'effusion', label: 'Effusion', type: 'select', options: ['Absent', 'Present'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'Hand X-Ray': { modality: 'X-Ray', bodyPart: 'Hand', fields: [
+    { id: 'bones', label: 'Bones', type: 'select', options: ['Normal', 'Fracture', 'Dislocation', 'Osteopenia'] },
+    { id: 'joints', label: 'Joints', type: 'select', options: ['Normal', 'Arthritis', 'Erosions'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'CT Brain (Plain)': { modality: 'CT Scan', bodyPart: 'Brain', fields: [
+    { id: 'hemorrhage', label: 'Hemorrhage', type: 'select', options: ['None', 'Intraparenchymal', 'Subdural', 'Epidural', 'Subarachnoid'] },
+    { id: 'midline_shift', label: 'Midline Shift', type: 'select', options: ['None', 'Present'] },
+    { id: 'ventricles', label: 'Ventricles', type: 'select', options: ['Normal', 'Dilated', 'Compressed'] },
+    { id: 'mass_effect', label: 'Mass Effect', type: 'select', options: ['None', 'Present'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'CT Brain (Contrast)': { modality: 'CT Scan', bodyPart: 'Brain', fields: [
+    { id: 'enhancement', label: 'Abnormal Enhancement', type: 'select', options: ['None', 'Ring Enhancement', 'Nodular', 'Diffuse'] },
+    { id: 'mass', label: 'Mass Lesion', type: 'select', options: ['None', 'Present'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'CT Chest (Plain)': { modality: 'CT Scan', bodyPart: 'Chest', fields: [
+    { id: 'lungs', label: 'Lung Parenchyma', type: 'select', options: ['Normal', 'Nodules', 'Consolidation', 'Ground Glass', 'Fibrosis'] },
+    { id: 'pleura', label: 'Pleura', type: 'select', options: ['Normal', 'Effusion', 'Thickening', 'Pneumothorax'] },
+    { id: 'mediastinum', label: 'Mediastinum', type: 'select', options: ['Normal', 'Lymphadenopathy', 'Mass'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'CT Abdomen & Pelvis (Contrast)': { modality: 'CT Scan', bodyPart: 'Abdomen', fields: [
+    { id: 'liver', label: 'Liver', type: 'select', options: ['Normal', 'Fatty', 'Cirrhotic', 'Lesion'] },
+    { id: 'spleen', label: 'Spleen', type: 'select', options: ['Normal', 'Enlarged', 'Lesion'] },
+    { id: 'kidneys', label: 'Kidneys', type: 'select', options: ['Normal', 'Calculi', 'Hydronephrosis', 'Mass'] },
+    { id: 'pancreas', label: 'Pancreas', type: 'select', options: ['Normal', 'Pancreatitis', 'Mass'] },
+    { id: 'bowel', label: 'Bowel', type: 'select', options: ['Normal', 'Obstruction', 'Inflammation', 'Perforation'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'CT KUB (Kidney, Ureter, Bladder)': { modality: 'CT Scan', bodyPart: 'Abdomen', fields: [
+    { id: 'kidneys', label: 'Kidneys', type: 'select', options: ['Normal', 'Calculi', 'Hydronephrosis', 'Atrophy'] },
+    { id: 'ureters', label: 'Ureters', type: 'select', options: ['Normal', 'Calculi', 'Dilated'] },
+    { id: 'bladder', label: 'Bladder', type: 'select', options: ['Normal', 'Calculi', 'Wall Thickening'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'MRI Brain (Plain)': { modality: 'MRI', bodyPart: 'Brain', fields: [
+    { id: 't1_findings', label: 'T1 Findings', type: 'text' },
+    { id: 't2_findings', label: 'T2/FLAIR Findings', type: 'text' },
+    { id: 'dwi_findings', label: 'DWI Findings', type: 'text' },
+    { id: 'mass_lesion', label: 'Mass Lesion', type: 'select', options: ['None', 'Present'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'MRI Brain (Contrast)': { modality: 'MRI', bodyPart: 'Brain', fields: [
+    { id: 'enhancement', label: 'Enhancement Pattern', type: 'select', options: ['None', 'Ring', 'Nodular', 'Leptomeningeal'] },
+    { id: 'mass', label: 'Mass Characteristics', type: 'text' },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'MRI Spine (Cervical)': { modality: 'MRI', bodyPart: 'Spine', fields: [
+    { id: 'alignment', label: 'Alignment', type: 'select', options: ['Normal', 'Spondylolisthesis', 'Subluxation'] },
+    { id: 'cord_signal', label: 'Cord Signal', type: 'select', options: ['Normal', 'Abnormal T2 Hyperintensity', 'Compression'] },
+    { id: 'disc_bulge', label: 'Disc Bulge/Herniation', type: 'text' },
+    { id: 'canal_stenosis', label: 'Canal Stenosis', type: 'select', options: ['None', 'Mild', 'Moderate', 'Severe'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'MRI Spine (Lumbar)': { modality: 'MRI', bodyPart: 'Spine', fields: [
+    { id: 'alignment', label: 'Alignment', type: 'select', options: ['Normal', 'Scoliosis', 'Spondylolisthesis'] },
+    { id: 'disc_degeneration', label: 'Disc Degeneration', type: 'text' },
+    { id: 'disc_herniation', label: 'Disc Herniation', type: 'text' },
+    { id: 'canal_stenosis', label: 'Canal Stenosis', type: 'select', options: ['None', 'Mild', 'Moderate', 'Severe'] },
+    { id: 'nerve_root', label: 'Nerve Root Compression', type: 'text' },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'MRI Knee': { modality: 'MRI', bodyPart: 'Knee', fields: [
+    { id: 'meniscus', label: 'Meniscus', type: 'select', options: ['Normal', 'Medial Tear', 'Lateral Tear', 'Both Torn'] },
+    { id: 'acl', label: 'ACL', type: 'select', options: ['Intact', 'Partial Tear', 'Complete Tear'] },
+    { id: 'pcl', label: 'PCL', type: 'select', options: ['Intact', 'Partial Tear', 'Complete Tear'] },
+    { id: 'cartilage', label: 'Articular Cartilage', type: 'select', options: ['Normal', 'Thinning', 'Defect'] },
+    { id: 'effusion', label: 'Joint Effusion', type: 'select', options: ['None', 'Mild', 'Moderate', 'Large'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'USG Abdomen (Whole)': { modality: 'Ultrasound', bodyPart: 'Abdomen', fields: [
+    { id: 'liver', label: 'Liver', type: 'select', options: ['Normal', 'Fatty', 'Cirrhotic', 'Lesion', 'Hepatomegaly'] },
+    { id: 'gb', label: 'Gallbladder', type: 'select', options: ['Normal', 'Calculi', 'Wall Thickening', 'Polyp'] },
+    { id: 'pancreas', label: 'Pancreas', type: 'select', options: ['Normal', 'Bulky', 'Calcification', 'Mass'] },
+    { id: 'spleen', label: 'Spleen', type: 'select', options: ['Normal', 'Enlarged', 'Lesion'] },
+    { id: 'kidneys', label: 'Kidneys', type: 'select', options: ['Normal', 'Calculi', 'Hydronephrosis', 'Cyst'] },
+    { id: 'bladder', label: 'Bladder', type: 'select', options: ['Normal', 'Calculi', 'Wall Thickening'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'USG Pelvis (Female)': { modality: 'Ultrasound', bodyPart: 'Pelvis', fields: [
+    { id: 'uterus', label: 'Uterus', type: 'select', options: ['Normal', 'Bulky', 'Fibroid', 'Endometrial Thickening'] },
+    { id: 'ovaries', label: 'Ovaries', type: 'select', options: ['Normal', 'Cyst', 'Mass', 'PCOS'] },
+    { id: 'adnexa', label: 'Adnexa', type: 'select', options: ['Normal', 'Mass', 'Free Fluid'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'USG Obstetric (First Trimester)': { modality: 'Ultrasound', bodyPart: 'Pelvis', fields: [
+    { id: 'gestational_sac', label: 'Gestational Sac', type: 'select', options: ['Present', 'Absent'] },
+    { id: 'fetal_pole', label: 'Fetal Pole', type: 'select', options: ['Present', 'Absent'] },
+    { id: 'cardiac_activity', label: 'Cardiac Activity', type: 'select', options: ['Present', 'Absent'] },
+    { id: 'gestational_age', label: 'Gestational Age', type: 'text' },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'USG Obstetric (Anomaly Scan)': { modality: 'Ultrasound', bodyPart: 'Pelvis', fields: [
+    { id: 'fetal_biometry', label: 'Fetal Biometry', type: 'text' },
+    { id: 'gestational_age', label: 'Gestational Age', type: 'text' },
+    { id: 'placenta', label: 'Placenta', type: 'select', options: ['Anterior', 'Posterior', 'Fundal', 'Low Lying', 'Previa'] },
+    { id: 'liquor', label: 'Liquor', type: 'select', options: ['Normal', 'Oligohydramnios', 'Polyhydramnios'] },
+    { id: 'anomalies', label: 'Anomalies', type: 'select', options: ['None Detected', 'Present'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'USG Thyroid': { modality: 'Ultrasound', bodyPart: 'Neck', fields: [
+    { id: 'size', label: 'Thyroid Size', type: 'select', options: ['Normal', 'Enlarged', 'Atrophic'] },
+    { id: 'echotexture', label: 'Echotexture', type: 'select', options: ['Normal', 'Heterogeneous', 'Nodular'] },
+    { id: 'nodules', label: 'Nodules', type: 'text' },
+    { id: 'lymph_nodes', label: 'Lymph Nodes', type: 'select', options: ['Normal', 'Enlarged'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'USG Breast': { modality: 'Ultrasound', bodyPart: 'Chest', fields: [
+    { id: 'parenchyma', label: 'Breast Parenchyma', type: 'select', options: ['Normal', 'Heterogeneous'] },
+    { id: 'mass', label: 'Mass/Lesion', type: 'select', options: ['None', 'Cyst', 'Solid Mass', 'Complex'] },
+    { id: 'lymph_nodes', label: 'Axillary Lymph Nodes', type: 'select', options: ['Normal', 'Enlarged'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'Mammography (Bilateral)': { modality: 'Mammography', bodyPart: 'Chest', fields: [
+    { id: 'density', label: 'Breast Density', type: 'select', options: ['A - Almost Fatty', 'B - Scattered Fibroglandular', 'C - Heterogeneously Dense', 'D - Extremely Dense'] },
+    { id: 'mass', label: 'Mass', type: 'select', options: ['None', 'Present'] },
+    { id: 'calcifications', label: 'Calcifications', type: 'select', options: ['None', 'Benign', 'Suspicious'] },
+    { id: 'birads', label: 'BI-RADS Category', type: 'select', options: ['0 - Incomplete', '1 - Negative', '2 - Benign', '3 - Probably Benign', '4 - Suspicious', '5 - Highly Suggestive', '6 - Known Malignancy'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'DEXA Scan (Bone Density)': { modality: 'DEXA Scan', bodyPart: 'Whole Body', fields: [
+    { id: 'lumbar_tscore', label: 'Lumbar Spine T-Score', type: 'text' },
+    { id: 'femur_tscore', label: 'Femoral Neck T-Score', type: 'text' },
+    { id: 'diagnosis', label: 'Diagnosis', type: 'select', options: ['Normal', 'Osteopenia', 'Osteoporosis'] },
+    { id: 'fracture_risk', label: 'Fracture Risk', type: 'select', options: ['Low', 'Moderate', 'High'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'Echocardiography (2D Echo)': { modality: 'Ultrasound', bodyPart: 'Cardiac', fields: [
+    { id: 'lv_function', label: 'LV Function', type: 'select', options: ['Normal', 'Mild Dysfunction', 'Moderate Dysfunction', 'Severe Dysfunction'] },
+    { id: 'ef', label: 'Ejection Fraction (%)', type: 'text' },
+    { id: 'rwma', label: 'RWMA', type: 'select', options: ['None', 'Present'] },
+    { id: 'valves', label: 'Valvular Abnormality', type: 'select', options: ['None', 'Mitral Regurgitation', 'Aortic Stenosis', 'Tricuspid Regurgitation'] },
+    { id: 'pericardium', label: 'Pericardium', type: 'select', options: ['Normal', 'Effusion'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'Doppler Study (Lower Limb Venous)': { modality: 'Ultrasound', bodyPart: 'Vascular', fields: [
+    { id: 'dvt', label: 'Deep Vein Thrombosis', type: 'select', options: ['None', 'Present'] },
+    { id: 'location', label: 'Location if DVT', type: 'text' },
+    { id: 'flow', label: 'Flow Pattern', type: 'select', options: ['Normal', 'Abnormal'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'Doppler Study (Carotid)': { modality: 'Ultrasound', bodyPart: 'Vascular', fields: [
+    { id: 'stenosis', label: 'Stenosis', type: 'select', options: ['None', '<50%', '50-69%', '70-99%', 'Occluded'] },
+    { id: 'plaque', label: 'Plaque', type: 'select', options: ['None', 'Present'] },
+    { id: 'flow_velocity', label: 'Peak Systolic Velocity', type: 'text' },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'Barium Swallow': { modality: 'Fluoroscopy', bodyPart: 'Chest', fields: [
+    { id: 'swallowing', label: 'Swallowing Mechanism', type: 'select', options: ['Normal', 'Dysphagia', 'Aspiration'] },
+    { id: 'esophagus', label: 'Esophagus', type: 'select', options: ['Normal', 'Stricture', 'Dilatation', 'Mass'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'Barium Meal Follow Through': { modality: 'Fluoroscopy', bodyPart: 'Abdomen', fields: [
+    { id: 'stomach', label: 'Stomach', type: 'select', options: ['Normal', 'Ulcer', 'Mass', 'Outlet Obstruction'] },
+    { id: 'small_bowel', label: 'Small Bowel', type: 'select', options: ['Normal', 'Stricture', 'Dilatation', 'Filling Defect'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'IVP (Intravenous Pyelography)': { modality: 'Fluoroscopy', bodyPart: 'Abdomen', fields: [
+    { id: 'kidneys', label: 'Kidneys', type: 'select', options: ['Normal', 'Non-functioning', 'Delayed Excretion'] },
+    { id: 'pcs', label: 'Pelvicalyceal System', type: 'select', options: ['Normal', 'Dilated', 'Filling Defect'] },
+    { id: 'ureters', label: 'Ureters', type: 'select', options: ['Normal', 'Dilated', 'Stricture', 'Calculus'] },
+    { id: 'bladder', label: 'Bladder', type: 'select', options: ['Normal', 'Filling Defect', 'Irregular'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]},
+  'PET-CT Scan (Whole Body)': { modality: 'PET Scan', bodyPart: 'Whole Body', fields: [
+    { id: 'primary_lesion', label: 'Primary Lesion', type: 'text' },
+    { id: 'suv_max', label: 'SUV Max', type: 'text' },
+    { id: 'lymph_nodes', label: 'Lymph Node Involvement', type: 'select', options: ['None', 'Present'] },
+    { id: 'metastasis', label: 'Distant Metastasis', type: 'select', options: ['None', 'Present'] },
+    { id: 'impression', label: 'Impression', type: 'textarea' }
+  ]}
 }
 
 const MODALITIES = ['X-Ray', 'CT Scan', 'MRI', 'Ultrasound', 'PET Scan', 'Mammography', 'Fluoroscopy', 'Nuclear Medicine', 'DEXA Scan', 'Angiography']
@@ -86,6 +311,15 @@ function NewRadiologyModal({ onClose, onSave, patients, doctors }) {
     catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
+  const handleStudyChange = (e) => {
+    const studyType = e.target.value
+    h('study_type', studyType)
+    if (RADIOLOGY_CATALOG[studyType]) {
+      h('modality', RADIOLOGY_CATALOG[studyType].modality)
+      h('body_part', RADIOLOGY_CATALOG[studyType].bodyPart)
+    }
+  }
+
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal modal-lg">
@@ -117,9 +351,12 @@ function NewRadiologyModal({ onClose, onSave, patients, doctors }) {
                 {doctors.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
               </select>
             </div>
-            <div className="form-group">
+            <div className="form-group" style={{ gridColumn: '1 / -1' }}>
               <label className="form-label">Study Type *</label>
-              <input className="form-input" placeholder="e.g. Chest X-Ray, Brain MRI, Abdomen CT" value={form.study_type} onChange={e => h('study_type', e.target.value)} />
+              <select className="form-input form-select" value={form.study_type} onChange={handleStudyChange}>
+                <option value="">Select radiology study...</option>
+                {Object.keys(RADIOLOGY_CATALOG).map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
             </div>
             <div className="form-group">
               <label className="form-label">Modality</label>
@@ -160,12 +397,387 @@ function NewRadiologyModal({ onClose, onSave, patients, doctors }) {
 
 // ─── Order Detail Panel ───────────────────────────────────────────────────────
 function OrderPanel({ order, onClose, onUpdated }) {
+  const { isAdmin } = useAuth()
+  const [findings, setFindings] = useState({})
+  const [saving, setSaving] = useState(false)
+  const [emailing, setEmailing] = useState(false)
+  const [hospitalInfo, setHospitalInfo] = useState(null)
+  const [logoBase64, setLogoBase64] = useState(null)
+  const [headerBase64, setHeaderBase64] = useState(null)
+  const isReported = order.status === 'Reported'
+  const isEditable = !isReported || isAdmin
+  const studyConfig = RADIOLOGY_CATALOG[order.study_type] || null
+
+  useEffect(() => {
+    if (order.radiologist_notes && isReported) {
+      try { setFindings(JSON.parse(order.radiologist_notes)) } catch(e) { /* fallback */ }
+    }
+  }, [order, isReported])
+
+  useEffect(() => {
+    const loadImg = (url, setter) => {
+      if (!url) return
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas')
+          canvas.width = img.naturalWidth
+          canvas.height = img.naturalHeight
+          const ctx = canvas.getContext('2d')
+          ctx.drawImage(img, 0, 0)
+          setter(canvas.toDataURL('image/png'))
+        } catch (e) { console.warn('Base64 conversion failed:', e) }
+      }
+      img.onerror = () => console.warn('Could not load image for PDF', url)
+      img.src = `${SERVER_URL}${url}?t=${Date.now()}` // Cache buster
+    }
+
+    api.getHospital().then(h => {
+      setHospitalInfo(h)
+      // Pre-load images as base64 for PDF embedding
+      loadImg(h.report_logo, setLogoBase64)
+      loadImg(h.report_header_image, setHeaderBase64)
+    }).catch(() => {})
+  }, [])
+
+  const generatePDF = (orderData, findingsObj, download = true) => {
+    try {
+      if (!studyConfig) { alert('Study configuration not found for PDF generation.'); return; }
+      
+      const doc = new jsPDF()
+      const pageW = doc.internal.pageSize.getWidth()
+      const pageH = doc.internal.pageSize.getHeight()
+      const margin = 15
+      const h = hospitalInfo
+      let cursorY = margin
+
+      // ═══════════════════════════════════════════════════════
+      // HEADER — Hospital branding
+      // ═══════════════════════════════════════════════════════
+      const drawHeader = () => {
+        let y = margin
+        let textStartX = margin
+
+        if (h?.report_print_mode === 'image') {
+          if (headerBase64) {
+            try {
+              // Calculate height maintaining aspect ratio, full width
+              const props = doc.getImageProperties(headerBase64)
+              const imgW = pageW
+              const imgH = (props.height * imgW) / props.width
+              doc.addImage(headerBase64, 'PNG', 0, 0, imgW, imgH)
+              return imgH + 5 // Return new cursorY below header
+            } catch (e) {
+              console.warn('Could not embed header image in PDF:', e)
+            }
+          }
+          // If image mode but image not loaded/missing, just leave space
+          return y + 25 
+        }
+
+        // Standard Text/Logo mode
+        // Logo
+        if (logoBase64) {
+          try {
+            const logoH = 22
+            const logoW = 40
+            doc.addImage(logoBase64, 'PNG', margin, y - 2, logoW, logoH)
+            textStartX = margin + logoW + 5
+          } catch (e) {
+            console.warn('Could not embed logo in PDF:', e)
+          }
+        }
+
+        if (h && h.report_header_text) {
+          const headerLines = h.report_header_text.split('\n').filter(l => l.trim())
+          headerLines.forEach((line, i) => {
+            if (i === 0) {
+              doc.setFontSize(14)
+              doc.setTextColor(30, 58, 138)
+              doc.setFont('helvetica', 'bold')
+            } else {
+              doc.setFontSize(8.5)
+              doc.setTextColor(80, 80, 80)
+              doc.setFont('helvetica', 'normal')
+            }
+            doc.text(line, textStartX, y + (i === 0 ? 5 : 7 + i * 4))
+          })
+          y += Math.max(22, 7 + headerLines.length * 4)
+
+          // Tagline
+          if (h.report_tagline) {
+            doc.setFontSize(7.5)
+            doc.setTextColor(79, 70, 229)
+            doc.setFont('helvetica', 'italic')
+            doc.text(h.report_tagline, textStartX, y + 2)
+            y += 6
+          }
+        } else {
+          // Fallback header if no branding configured
+          doc.setFontSize(18)
+          doc.setTextColor(30, 58, 138)
+          doc.setFont('helvetica', 'bold')
+          doc.text(h?.name || 'RADIOLOGY REPORT', textStartX, y + 10)
+          y += 15
+        }
+
+        // Divider line
+        y += 3
+        doc.setDrawColor(79, 70, 229)
+        doc.setLineWidth(0.8)
+        doc.line(margin, y, pageW - margin, y)
+        doc.setDrawColor(200, 200, 200)
+        doc.setLineWidth(0.3)
+        doc.line(margin, y + 1.5, pageW - margin, y + 1.5)
+
+        return y + 6
+      }
+
+      cursorY = drawHeader()
+
+      // ═══════════════════════════════════════════════════════
+      // REPORT TITLE LINE
+      // ═══════════════════════════════════════════════════════
+      doc.setFontSize(11)
+      doc.setTextColor(79, 70, 229)
+      doc.setFont('helvetica', 'bold')
+      doc.text('RADIOLOGY REPORT', pageW / 2, cursorY, { align: 'center' })
+      cursorY += 8
+
+      // ═══════════════════════════════════════════════════════
+      // PATIENT INFO BOX
+      // ═══════════════════════════════════════════════════════
+      doc.setFillColor(248, 250, 252)
+      doc.roundedRect(margin, cursorY - 2, pageW - margin * 2, 20, 2, 2, 'F')
+
+      doc.setFontSize(9)
+      doc.setTextColor(60, 60, 60)
+      doc.setFont('helvetica', 'normal')
+      doc.text(`Patient Name: `, margin + 4, cursorY + 5)
+      doc.setFont('helvetica', 'bold')
+      doc.text(`${orderData.patient_name || 'N/A'}`, margin + 32, cursorY + 5)
+
+      doc.setFont('helvetica', 'normal')
+      doc.text(`Patient ID: ${orderData.patient_code || 'N/A'}`, margin + 4, cursorY + 12)
+      doc.text(`Referring Doctor: ${orderData.requested_by || 'Self Referral'}`, pageW / 2, cursorY + 5)
+      doc.text(`Report Date: ${new Date().toLocaleString('en-IN')}`, pageW / 2, cursorY + 12)
+      cursorY += 24
+
+      // ═══════════════════════════════════════════════════════
+      // STUDY DETAILS BOX
+      // ═══════════════════════════════════════════════════════
+      doc.setFillColor(245, 247, 250)
+      doc.roundedRect(margin, cursorY, pageW - margin * 2, 18, 2, 2, 'F')
+      
+      doc.setFontSize(10)
+      doc.setTextColor(20, 20, 20)
+      doc.setFont('helvetica', 'bold')
+      doc.text(`Study: ${orderData.study_type}`, margin + 4, cursorY + 7)
+      
+      doc.setFontSize(8.5)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(60, 60, 60)
+      doc.text(`Modality: ${orderData.modality || 'N/A'}`, margin + 4, cursorY + 13)
+      doc.text(`Body Part: ${orderData.body_part || 'N/A'}`, pageW / 2, cursorY + 13)
+      cursorY += 22
+
+      // ═══════════════════════════════════════════════════════
+      // CLINICAL INDICATION
+      // ═══════════════════════════════════════════════════════
+      if (orderData.clinical_indication) {
+        doc.setFontSize(10)
+        doc.setFont('helvetica', 'bold')
+        doc.setTextColor(79, 70, 229)
+        doc.text('CLINICAL INDICATION:', margin, cursorY)
+        cursorY += 6
+        
+        doc.setFontSize(9)
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(60, 60, 60)
+        const indicationLines = doc.splitTextToSize(orderData.clinical_indication, pageW - margin * 2 - 5)
+        doc.text(indicationLines, margin, cursorY)
+        cursorY += (indicationLines.length * 5) + 6
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // FINDINGS TABLE
+      // ═══════════════════════════════════════════════════════
+      doc.setFontSize(11)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(79, 70, 229)
+      doc.text('FINDINGS:', margin, cursorY)
+      cursorY += 6
+
+      const findingsData = []
+      studyConfig.fields.forEach(field => {
+        const value = findingsObj[field.id] || 'Not documented'
+        if (field.type !== 'textarea') {
+          findingsData.push([field.label, value])
+        }
+      })
+
+      if (findingsData.length > 0) {
+        autoTable(doc, {
+          startY: cursorY,
+          head: [['Parameter', 'Finding']],
+          body: findingsData,
+          theme: 'grid',
+          margin: { left: margin, right: margin, bottom: 35 },
+          headStyles: { 
+            fillColor: [79, 70, 229], 
+            textColor: [255, 255, 255], 
+            fontStyle: 'bold',
+            fontSize: 9
+          },
+          styles: { fontSize: 9, cellPadding: 3.5 },
+          alternateRowStyles: { fillColor: [248, 250, 252] },
+          columnStyles: {
+            0: { cellWidth: 60, fontStyle: 'bold', textColor: [40, 40, 40] },
+            1: { cellWidth: 'auto' }
+          }
+        })
+        cursorY = doc.lastAutoTable.finalY + 10
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // IMPRESSION SECTION
+      // ═══════════════════════════════════════════════════════
+      const impressionField = studyConfig.fields.find(f => f.id === 'impression')
+      if (impressionField && findingsObj[impressionField.id]) {
+        doc.setFontSize(11)
+        doc.setFont('helvetica', 'bold')
+        doc.setTextColor(79, 70, 229)
+        doc.text('IMPRESSION:', margin, cursorY)
+        cursorY += 6
+        
+        doc.setFontSize(9.5)
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(20, 20, 20)
+        const impressionLines = doc.splitTextToSize(findingsObj[impressionField.id], pageW - margin * 2 - 5)
+        doc.text(impressionLines, margin, cursorY)
+        cursorY += impressionLines.length * 5 + 10
+      }
+
+      // ═══════════════════════════════════════════════════════
+      // SIGNATURE SECTION
+      // ═══════════════════════════════════════════════════════
+      if (cursorY < pageH - 45) {
+        cursorY = Math.max(cursorY, pageH - 40)
+        doc.setFontSize(9)
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(80, 80, 80)
+        doc.text('Radiologist Signature: _____________________', pageW - margin - 70, cursorY)
+        doc.setFontSize(8)
+        doc.setTextColor(100, 100, 100)
+        doc.text(`Date: ${new Date().toLocaleDateString('en-IN')}`, pageW - margin - 70, cursorY + 6)
+      }
+
+      const patientName = orderData.patient_name || orderData.patient_id || 'Patient'
+      if (download && typeof doc.save === 'function') {
+        doc.save(`${patientName.replace(/[^a-z0-9]/gi, '_')}_${orderData.study_type.replace(/[^a-z0-9]/gi, '_')}.pdf`)
+      }
+      return doc
+    } catch (err) {
+      console.error('PDF Generation Error:', err)
+      alert('Could not generate PDF: ' + err.message)
+    }
+  }
+
+  const handleSendEmail = async () => {
+    const email = order.patient_email || prompt('Enter patient email:', '')
+    if (!email) return
+
+    setEmailing(true)
+    try {
+      const doc = generatePDF(order, findings, false)
+      if (!doc) throw new Error('PDF Generation failed')
+      
+      const pdfBlob = doc.output('blob')
+      const formData = new FormData()
+      formData.append('report_pdf', pdfBlob)
+      formData.append('email', email)
+      formData.append('patient_name', order.patient_name)
+      formData.append('study_type', order.study_type)
+
+      await api.sendRadiologyEmail(order.id, formData)
+      alert('Report sent successfully to ' + email)
+    } catch (e) {
+      console.error(e)
+      alert('Error sending email: ' + e.message)
+    } finally {
+      setEmailing(false)
+    }
+  }
+
+  const handleSaveFindings = async () => {
+    setSaving(true)
+    try {
+      const jsonStr = JSON.stringify(findings)
+      const updated = await api.updateRadiology(order.id, { 
+        radiologist_notes: jsonStr, 
+        status: 'Reported', 
+        completed_at: new Date().toISOString() 
+      })
+      const merged = { ...order, ...updated, radiologist_notes: jsonStr, status: 'Reported' }
+      onUpdated(merged)
+      generatePDF(merged, findings)
+      onClose()
+    } catch (e) {
+      alert('Error saving findings: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const renderField = (field) => {
+    const value = findings[field.id] || ''
+    
+    if (field.type === 'select') {
+      return (
+        <select 
+          className="form-input form-select" 
+          style={{ fontSize: '0.8rem' }}
+          value={value}
+          disabled={!isEditable}
+          onChange={e => setFindings(f => ({ ...f, [field.id]: e.target.value }))}
+        >
+          <option value="">Select...</option>
+          {field.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+        </select>
+      )
+    } else if (field.type === 'textarea') {
+      return (
+        <textarea 
+          className="form-input form-textarea" 
+          style={{ fontSize: '0.8rem', minHeight: 100 }}
+          placeholder="Enter detailed impression..."
+          value={value}
+          disabled={!isEditable}
+          onChange={e => setFindings(f => ({ ...f, [field.id]: e.target.value }))}
+        />
+      )
+    } else {
+      return (
+        <input 
+          className="form-input" 
+          style={{ fontSize: '0.8rem' }}
+          type="text"
+          placeholder="Enter value..."
+          value={value}
+          disabled={!isEditable}
+          onChange={e => setFindings(f => ({ ...f, [field.id]: e.target.value }))}
+        />
+      )
+    }
+  }
+
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', zIndex: 100, display: 'flex', justifyContent: 'flex-end' }} onClick={onClose}>
-      <div style={{ width: 500, background: '#fff', height: '100%', overflow: 'auto', boxShadow: 'var(--shadow-2xl)', padding: '2rem', animation: 'slideInLeft 250ms ease' }} onClick={e => e.stopPropagation()}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', zIndex: 200, display: 'flex', justifyContent: 'flex-end' }} onClick={onClose}>
+      <div style={{ width: 600, background: '#fff', height: '100%', overflow: 'auto', boxShadow: 'var(--shadow-2xl)', padding: '2rem', animation: 'slideInRight 250ms cubic-bezier(0.4,0,0.2,1)' }} onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
           <div>
-            <h4 style={{ color: 'var(--gray-900)', fontWeight: 700 }}>Radiology Order</h4>
+            <h4 style={{ color: 'var(--gray-900)', fontWeight: 700 }}>Radiology Report</h4>
             <p style={{ fontSize: '0.8rem', color: 'var(--gray-400)' }}>
               #{order.id} · {order.ordered_at ? new Date(order.ordered_at).toLocaleDateString('en-IN') : '—'}
             </p>
@@ -187,7 +799,7 @@ function OrderPanel({ order, onClose, onUpdated }) {
           </div>
         </div>
 
-        {/* Details */}
+        {/* Study Details */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem' }}>
           {[
             ['Study Type',           order.study_type],
@@ -208,13 +820,52 @@ function OrderPanel({ order, onClose, onUpdated }) {
               <div style={{ fontSize: '0.875rem', color: 'var(--gray-700)' }}>{order.clinical_indication}</div>
             </div>
           )}
-          {order.radiologist_notes && (
-            <div style={{ padding: '0.875rem', background: 'rgba(16,185,129,0.06)', borderRadius: 'var(--radius-lg)', border: '1px solid rgba(16,185,129,0.2)' }}>
-              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#059669', marginBottom: '0.375rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Radiologist Notes</div>
-              <div style={{ fontSize: '0.875rem', color: 'var(--gray-700)' }}>{order.radiologist_notes}</div>
-            </div>
-          )}
         </div>
+
+        {/* Findings Entry Form */}
+        {studyConfig && (
+          <div style={{ marginBottom: '1.5rem' }}>
+            <h5 style={{ fontWeight: 700, margin: '0 0 1rem', color: 'var(--primary-700)', fontSize: '0.9375rem' }}>Radiologist Findings</h5>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {studyConfig.fields.map(field => (
+                <div key={field.id} className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.8rem', marginBottom: '0.375rem' }}>{field.label}</label>
+                  {renderField(field)}
+                </div>
+              ))}
+            </div>
+            {isEditable && (
+              <button 
+                className="btn btn-primary w-full" 
+                style={{ marginTop: '1.25rem', justifyContent: 'center' }}
+                onClick={handleSaveFindings}
+                disabled={saving}
+              >
+                {saving ? <Loader size={14} className="spin"/> : <CheckCircle size={14}/>} 
+                {isReported ? 'Update Findings & Regenerate PDF' : 'Save Findings & Generate PDF Report'}
+              </button>
+            )}
+            {isReported && (
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.25rem' }}>
+                <button 
+                  className="btn btn-secondary w-full" 
+                  style={{ justifyContent: 'center' }} 
+                  onClick={() => generatePDF(order, findings)}
+                >
+                  <Download size={14} /> Download PDF
+                </button>
+                <button 
+                  className="btn btn-primary w-full" 
+                  style={{ justifyContent: 'center', background: '#3b82f6', borderColor: '#3b82f6' }} 
+                  onClick={handleSendEmail}
+                  disabled={emailing}
+                >
+                  {emailing ? <Loader size={14} className="spin" /> : <Mail size={14} />} Send Email
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* PDF Upload */}
         <div style={{ borderTop: '1px solid var(--gray-100)', paddingTop: '1.25rem' }}>
@@ -275,6 +926,7 @@ export default function Radiology() {
   }
 
   return (
+    <>
     <div className="animate-fadeInUp">
       <div className="page-header">
         <div>
@@ -376,8 +1028,9 @@ export default function Radiology() {
         </div>
       </div>
 
-      {selectedOrder && <OrderPanel order={selectedOrder} onClose={() => setSelectedOrder(null)} onUpdated={handleUpdated} />}
-      {showModal && <NewRadiologyModal onClose={() => setShowModal(false)} onSave={handleSave} patients={patients} doctors={doctors} />}
     </div>
+    {selectedOrder && <OrderPanel order={selectedOrder} onClose={() => setSelectedOrder(null)} onUpdated={handleUpdated} />}
+    {showModal && <NewRadiologyModal onClose={() => setShowModal(false)} onSave={handleSave} patients={patients} doctors={doctors} />}
+    </>
   )
 }
