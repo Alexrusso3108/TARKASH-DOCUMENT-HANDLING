@@ -203,6 +203,57 @@ async function initDB() {
       `CREATE INDEX IF NOT EXISTS idx_patient_ds_patient ON patient_discharge_summaries(patient_id)`,
       `CREATE INDEX IF NOT EXISTS idx_patient_ds_template ON patient_discharge_summaries(template_id)`,
       `DO $m$ BEGIN ALTER TABLE patient_discharge_summaries ADD COLUMN text_content TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
+      `DO $m$ BEGIN ALTER TABLE patient_discharge_summaries ADD COLUMN approved_by VARCHAR(100); EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
+      `DO $m$ BEGIN ALTER TABLE patient_discharge_summaries ADD COLUMN approved_at TIMESTAMPTZ; EXCEPTION WHEN duplicate_column THEN NULL; END $m$`,
+
+      // ── Audit Trail ──
+      `CREATE TABLE IF NOT EXISTS audit_logs (
+        id          SERIAL PRIMARY KEY,
+        hospital_id INTEGER REFERENCES hospitals(id) ON DELETE CASCADE,
+        user_id     INTEGER,
+        user_name   VARCHAR(150),
+        user_role   VARCHAR(50),
+        action      VARCHAR(100) NOT NULL,
+        resource    VARCHAR(100),
+        resource_id VARCHAR(50),
+        details     TEXT,
+        ip_address  VARCHAR(50),
+        created_at  TIMESTAMPTZ DEFAULT NOW()
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_audit_hospital ON audit_logs(hospital_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_audit_created  ON audit_logs(created_at)`,
+
+      // ── Backfill audit from existing data (runs once, idempotent) ──
+      `INSERT INTO audit_logs (hospital_id, user_name, user_role, action, resource, resource_id, details, created_at)
+       SELECT p.hospital_id, 'System (Historical)', 'admin', 'PATIENT_CREATED', 'patients', p.id::text,
+              'Patient registered: ' || p.name || ' (' || COALESCE(p.admission_type,'OPD') || ')',
+              COALESCE(p.admitted_at, p.created_at, NOW())
+       FROM patients p
+       WHERE p.hospital_id IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM audit_logs al
+           WHERE al.resource = 'patients' AND al.resource_id = p.id::text AND al.action = 'PATIENT_CREATED'
+         )`,
+      `INSERT INTO audit_logs (hospital_id, user_name, user_role, action, resource, resource_id, details, created_at)
+       SELECT b.hospital_id, 'System (Historical)', 'admin', 'BILLING_CREATED', 'billing', b.id::text,
+              'Invoice ' || b.id || ' - ₹' || b.total_amount::text || ' (' || b.status || ')',
+              COALESCE(b.created_at, NOW())
+       FROM billing b
+       WHERE b.hospital_id IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM audit_logs al
+           WHERE al.resource = 'billing' AND al.resource_id = b.id::text
+         )`,
+      `INSERT INTO audit_logs (hospital_id, user_name, user_role, action, resource, resource_id, details, created_at)
+       SELECT l.hospital_id, 'System (Historical)', 'lab_tech', 'LAB_ORDER_CREATED', 'lab_tests', l.id::text,
+              'Lab test ordered: ' || l.test_name || ' (' || l.priority || ')',
+              COALESCE(l.ordered_at, NOW())
+       FROM lab_tests l
+       WHERE l.hospital_id IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM audit_logs al
+           WHERE al.resource = 'lab_tests' AND al.resource_id = l.id::text
+         )`,
     ]
     for (const sql of safeMigrations) {
       await c.query(sql)
@@ -219,6 +270,30 @@ initDB()
 
 // Share pool with auth module
 setAuthPool(pool)
+
+// ─── Audit-Trail helper ──────────────────────────────────────
+async function logAudit(req, action, resource, resourceId, details) {
+  try {
+    const u = req.user || {}
+    await pool.query(
+      `INSERT INTO audit_logs (hospital_id, user_id, user_name, user_role, action, resource, resource_id, details, ip_address)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [
+        u.hospitalId || null,
+        u.id         || null,
+        u.name       || u.username || 'Unknown',
+        u.role       || 'staff',
+        action,
+        resource     || null,
+        resourceId   ? String(resourceId) : null,
+        details      || null,
+        req.headers['x-forwarded-for'] || req.socket?.remoteAddress || null,
+      ]
+    )
+  } catch (e) {
+    console.error('[Audit] Log failed:', e.message)
+  }
+}
 
 // ─── APP ─────────────────────────────────────────────────────
 const app = express()
@@ -367,6 +442,7 @@ app.post('/api/patients', requireAuth, async (req, res) => {
       [newId, hid, name, age, gender, blood_group, department, doctor_id || null, phone, status || 'Stable', admission_type || 'OPD', notes]
     )
     res.status(201).json(rows[0])
+    logAudit(req, 'PATIENT_CREATED', 'patients', rows[0].id, `Patient "${name}" registered (${admission_type || 'OPD'})`)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
@@ -389,6 +465,7 @@ app.delete('/api/patients/:id', requireAuth, async (req, res) => {
   try {
     await pool.query('DELETE FROM patients WHERE id = $1 AND hospital_id = $2', [req.params.id, req.user.hospitalId])
     res.json({ success: true })
+    logAudit(req, 'PATIENT_DELETED', 'patients', req.params.id, 'Patient record deleted')
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
@@ -576,6 +653,7 @@ app.post('/api/opd', requireAuth, async (req, res) => {
 
     await client.query('COMMIT')
     res.status(201).json(rows[0])
+    logAudit(req, 'OPD_VISIT_CREATED', 'opd_visits', rows[0].id, `OPD visit registered — Token: ${token}, Dept: ${department}`)
   } catch (e) {
     await client.query('ROLLBACK')
     res.status(500).json({ error: e.message })
@@ -699,6 +777,7 @@ app.post('/api/lab', requireAuth, async (req, res) => {
       [req.user.hospitalId, patient_id, test_name, category, requested_by, priority || 'Routine']
     )
     res.status(201).json(rows[0])
+    logAudit(req, 'LAB_ORDER_CREATED', 'lab_tests', rows[0].id, `Lab test ordered: ${test_name} (${priority||'Routine'}) for patient ${patient_id}`)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
@@ -952,7 +1031,23 @@ app.patch('/api/discharge-summaries/:id/text', requireAuth, async (req, res) => 
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
-// GET — get single instance
+// PATCH — approve discharge summary (doctors only)
+app.patch('/api/discharge-summaries/:id/approve', requireAuth, async (req, res) => {
+  try {
+    const { approved_by } = req.body
+    if (!approved_by) return res.status(400).json({ error: 'approved_by is required' })
+    
+    const { rows } = await pool.query(
+      `UPDATE patient_discharge_summaries
+       SET approved_by=$2, approved_at=NOW(), status='approved', updated_at=NOW()
+       WHERE id=$1 RETURNING *`,
+      [req.params.id, approved_by]
+    )
+    if (!rows.length) return res.status(404).json({ error: 'Summary instance not found' })
+    res.json(rows[0])
+    logAudit(req, 'DISCHARGE_APPROVED', 'discharge_summaries', req.params.id, `Discharge summary approved by ${approved_by}`)
+  } catch (e) { res.status(500).json({ error: e.message }) }
+})
 app.get('/api/discharge-summaries/:id', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -1106,6 +1201,7 @@ app.post('/api/billing', requireAuth, async (req, res) => {
       [newId, hid, patient_id, total_amount, paid_amount || 0, status, payment_method, type]
     )
     res.status(201).json(rows[0])
+    logAudit(req, 'BILLING_CREATED', 'billing', rows[0].id, `Invoice ${newId} — ₹${total_amount} (${status}) via ${payment_method||'Cash'}`)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
@@ -1331,6 +1427,69 @@ app.get('/api/forms/patient-instance/:id', async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 // HEALTH CHECK
 // ─────────────────────────────────────────────────────────────
+// DASHBOARD STATS — live KPIs
+app.get('/api/dashboard/stats', requireAuth, async (req, res) => {
+  const hid = req.user.hospitalId
+  try {
+    const COLORS = ['#6366f1','#0d9488','#0ea5e9','#f59e0b','#10b981']
+    const [
+      pR,bR,nR,rpR,pnR,opdR,todRevR,mRevR,lmRevR,labR,critR,wkR,moRevR,deptR,
+    ] = await Promise.all([
+      pool.query(`SELECT COUNT(*) FROM patients WHERE hospital_id=$1`,[hid]),
+      pool.query(`SELECT COUNT(*) AS total, COUNT(*) FILTER(WHERE status='occupied') AS occupied FROM beds WHERE hospital_id=$1`,[hid]),
+      pool.query(`SELECT COUNT(*) FROM clinical_notes WHERE hospital_id=$1 AND status='pending'`,[hid]),
+      pool.query(`SELECT p.id,p.name,p.age,p.status,p.department AS dept,p.admitted_at,d.name AS doctor FROM patients p LEFT JOIN doctors d ON p.doctor_id=d.id WHERE p.hospital_id=$1 ORDER BY p.admitted_at DESC NULLS LAST LIMIT 5`,[hid]),
+      pool.query(`SELECT n.id,n.note_type,n.priority,n.created_at,p.name AS patient_name,d.name AS doctor_name FROM clinical_notes n LEFT JOIN patients p ON n.patient_id=p.id LEFT JOIN doctors d ON n.doctor_id=d.id WHERE n.hospital_id=$1 AND n.status='pending' ORDER BY n.created_at DESC LIMIT 5`,[hid]),
+      pool.query(`SELECT COUNT(*) FROM opd_visits WHERE hospital_id=$1 AND visit_date=CURRENT_DATE`,[hid]),
+      pool.query(`SELECT COALESCE(SUM(total_amount),0) AS t FROM billing WHERE hospital_id=$1 AND DATE(created_at)=CURRENT_DATE`,[hid]),
+      pool.query(`SELECT COALESCE(SUM(total_amount),0) AS t FROM billing WHERE hospital_id=$1 AND DATE_TRUNC('month',created_at)=DATE_TRUNC('month',NOW())`,[hid]),
+      pool.query(`SELECT COALESCE(SUM(total_amount),0) AS t FROM billing WHERE hospital_id=$1 AND DATE_TRUNC('month',created_at)=DATE_TRUNC('month',NOW()-INTERVAL '1 month')`,[hid]),
+      pool.query(`SELECT COUNT(*) FROM lab_tests WHERE hospital_id=$1 AND status='Pending'`,[hid]),
+      pool.query(`SELECT COUNT(*) FROM patients WHERE hospital_id=$1 AND status='Critical'`,[hid]),
+      pool.query(`SELECT TO_CHAR(d.day,'Dy') AS day, COALESCE(COUNT(p.id) FILTER(WHERE p.admission_type='IPD'),0) AS ipd, COALESCE(COUNT(p.id) FILTER(WHERE p.admission_type<>'IPD'),0) AS opd FROM generate_series(NOW()-INTERVAL '6 days',NOW(),INTERVAL '1 day') d(day) LEFT JOIN patients p ON DATE(p.admitted_at)=DATE(d.day) AND p.hospital_id=$1 GROUP BY d.day ORDER BY d.day`,[hid]),
+      pool.query(`SELECT TO_CHAR(m.month,'Mon') AS month, COALESCE(SUM(b.total_amount),0)/100000.0 AS revenue FROM generate_series(DATE_TRUNC('month',NOW()-INTERVAL '5 months'),DATE_TRUNC('month',NOW()),INTERVAL '1 month') m(month) LEFT JOIN billing b ON DATE_TRUNC('month',b.created_at)=m.month AND b.hospital_id=$1 GROUP BY m.month ORDER BY m.month`,[hid]),
+      pool.query(`SELECT COALESCE(department,'Other') AS name,COUNT(*) AS value FROM patients WHERE hospital_id=$1 AND status<>'Discharged' GROUP BY department ORDER BY value DESC LIMIT 5`,[hid]),
+    ])
+    const total=parseInt(bR.rows[0].total)||0, occ=parseInt(bR.rows[0].occupied)||0
+    const mRev=parseFloat(mRevR.rows[0].t)||0, lmRev=parseFloat(lmRevR.rows[0].t)||0
+    res.json({
+      totalPatients:    parseInt(pR.rows[0].count),
+      bedOccupancy:     `${total>0?Math.round(occ/total*100):0}%`,
+      bedDetail:        `${occ}/${total} beds`,
+      occupiedBeds:occ, totalBeds:total,
+      pendingNotes:     parseInt(nR.rows[0].count),
+      recentPatients:   rpR.rows,
+      pendingNotesList: pnR.rows,
+      todayOPD:         parseInt(opdR.rows[0].count),
+      todayRevenue:     parseFloat(todRevR.rows[0].t)||0,
+      monthRevenue:     mRev,
+      lastMonthRevenue: lmRev,
+      revenueChange:    lmRev>0?`${(((mRev-lmRev)/lmRev)*100).toFixed(1)}%`:'+0%',
+      pendingLab:       parseInt(labR.rows[0].count),
+      criticalPatients: parseInt(critR.rows[0].count),
+      weeklyAdmissions: wkR.rows.map(r=>({day:r.day,ipd:+r.ipd||0,opd:+r.opd||0})),
+      monthlyRevenue:   moRevR.rows.map(r=>({month:r.month,revenue:parseFloat(r.revenue)||0})),
+      deptBreakdown:    deptR.rows.map((r,i)=>({name:r.name,value:parseInt(r.value)||0,color:COLORS[i%5]})),
+    })
+  } catch(e){ console.error('[DashStats]',e.message); res.status(500).json({error:e.message}) }
+})
+
+// AUDIT LOGS
+app.get('/api/audit-logs', requireAuth, async (req, res) => {
+  try {
+    const { page=1, limit=60, action, resource } = req.query
+    const hid=req.user.hospitalId, offset=(parseInt(page)-1)*parseInt(limit)
+    let q='SELECT * FROM audit_logs WHERE hospital_id=$1'
+    const p=[hid]
+    if(action)  {p.push(action);  q+=` AND action=$${p.length}`}
+    if(resource){p.push(resource);q+=` AND resource=$${p.length}`}
+    q+=` ORDER BY created_at DESC LIMIT $${p.length+1} OFFSET $${p.length+2}`
+    p.push(parseInt(limit),offset)
+    const {rows}=await pool.query(q,p)
+    res.json(rows)
+  } catch(e){res.status(500).json({error:e.message})}
+})
+
 app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date() }))
 
 // ─────────────────────────────────────────────────────────────

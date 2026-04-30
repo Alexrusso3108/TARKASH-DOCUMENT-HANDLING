@@ -517,21 +517,22 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
 // This works on ANY uploaded template — no hardcoded positions needed.
 const FIELD_LABEL_MAP = [
   // { key: data key, aliases: strings to search in PDF text layer, side: 'right'|'below' }
-  { key: 'patient_name',      aliases: ['patient name', 'name of patient', 'patient\'s name', 'name', 'pt name'], side: 'right' },
-  { key: 'age',               aliases: ['age', 'years', 'y/o', 'yrs'],                                          side: 'right' },
-  { key: 'gender',            aliases: ['gender', 'sex', 'm/f'],                                                side: 'right' },
-  { key: 'age_gender',        aliases: ['age / gender', 'age/gender', 'age & gender', 'age-gender', 'age / sex'], side: 'right' },
-  { key: 'reg_no',            aliases: ['reg no', 'reg. no', 'uhid', 'mrd no', 'mr no', 'cr no', 'patient id', 'registration no'], side: 'right' },
-  { key: 'date_of_admission', aliases: ['date of admission', 'admission date', 'd.o.a', 'doa', 'admitted on'],     side: 'right' },
-  { key: 'phone',             aliases: ['phone number', 'phone no', 'mobile no', 'contact no', 'mobile', 'phone', 'contact'], side: 'right' },
-  { key: 'consultant',        aliases: ['consultant', 'doctor', 'physician', 'attending doctor', 'dr.', 'surgeon'], side: 'right' },
-  { key: 'room_bed',          aliases: ['room / bed', 'room/bed', 'bed no', 'bed number', 'ward / bed', 'room', 'bed', 'ward'], side: 'right' },
-  { key: 'ip_no',             aliases: ['ip no', 'ip number', 'ipd no', 'inpatient no', 'admission no', 'ipn'],   side: 'right' },
-  { key: 'date_of_discharge', aliases: ['date of discharge', 'discharge date', 'd.o.d', 'dod', 'discharged on'],   side: 'right' },
-  { key: 'department',        aliases: ['department', 'dept', 'specialty', 'speciality', 'unit', 'ward name'],    side: 'right' },
-  { key: 'diagnosis',         aliases: ['diagnosis', 'final diagnosis', 'primary diagnosis', 'clinical diagnosis', 'provisional diagnosis', 'chief complaint'], side: 'right' },
-  { key: 'blood_group',       aliases: ['blood group', 'blood type', 'b/g', 'rh'],                              side: 'right' },
-  { key: 'address',           aliases: ['address', 'residence', 'residing at'],                                 side: 'right' },
+  { key: 'patient_name',      aliases: ['patient name', 'name of patient', "patient's name", 'pt. name', 'pt name', 'name of the patient', 'patient'], side: 'right' },
+  { key: 'age',               aliases: ['age', 'years', 'y/o', 'yrs', 'age (yrs)', 'age in years'],                                                       side: 'right' },
+  { key: 'gender',            aliases: ['gender', 'sex', 'm/f', 'sex/gender'],                                                                            side: 'right' },
+  { key: 'age_gender',        aliases: ['age / gender', 'age/gender', 'age & gender', 'age-gender', 'age / sex', 'age/sex'],                              side: 'right' },
+  { key: 'reg_no',            aliases: ['reg no', 'reg. no', 'reg no.', 'uhid', 'mrd no', 'mr no', 'cr no', 'patient id', 'registration no', 'registration number', 'hosp. no', 'hosp no'], side: 'right' },
+  { key: 'ip_no',             aliases: ['ip no', 'ip number', 'ipd no', 'inpatient no', 'admission no', 'ipn', 'ip/op no'],                               side: 'right' },
+  { key: 'date_of_admission', aliases: ['date of admission', 'admission date', 'd.o.a', 'doa', 'admitted on', 'date of admit', 'date of admision'],       side: 'right' },
+  { key: 'phone',             aliases: ['phone number', 'phone no', 'mobile no', 'contact no', 'mobile', 'phone', 'contact', 'mob no', 'mob', 'tel'],    side: 'right' },
+  { key: 'consultant',        aliases: ['consultant', 'doctor', 'physician', 'attending doctor', 'consultant doctor', 'treating doctor', 'treating physician', 'surgeon', 'dr.'], side: 'right' },
+  { key: 'room_bed',          aliases: ['room / bed', 'room/bed', 'bed no', 'bed number', 'ward / bed', 'room', 'bed', 'ward', 'room no', 'bed no.', 'ward/bed'], side: 'right' },
+  { key: 'date_of_discharge', aliases: ['date of discharge', 'discharge date', 'd.o.d', 'dod', 'discharged on'],                                         side: 'right' },
+  { key: 'department',        aliases: ['department', 'dept', 'dept.', 'specialty', 'speciality', 'unit', 'ward name'],                                   side: 'right' },
+  { key: 'diagnosis',         aliases: ['diagnosis', 'final diagnosis', 'primary diagnosis', 'clinical diagnosis', 'provisional diagnosis', 'chief complaint', 'diag'], side: 'right' },
+  { key: 'blood_group',       aliases: ['blood group', 'blood type', 'b/g', 'rh', 'blood grp', 'blood gp'],                                              side: 'right' },
+  { key: 'address',           aliases: ['address', 'residence', 'residing at', 'addr'],                                                                   side: 'right' },
+  { key: 'today_date',        aliases: ['date'],                                                                                                           side: 'right' },
 ]
 
 // Build the patient value map from patientData
@@ -545,6 +546,7 @@ function buildPatientValues(patientData) {
     gender:            p.gender || '',
     age_gender:        [p.age ? `${p.age} Y` : '', p.gender].filter(Boolean).join(' / '),
     reg_no:            p.id || p.uhid || '',
+    today_date:        new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
     date_of_admission: formatDate(p.admitted_at),
     phone:            p.phone || '',
     consultant:       p.doctor_name || '',
@@ -602,6 +604,7 @@ async function buildSmartAutoAnnotations(pdfPage, patientData) {
 
   const annotations = []
   const usedKeys = new Set()
+  const usedRowIndices = new Set() // prevent two fields from annotating the same PDF row
 
   // Group text items by approximate Y row (within 4pt tolerance) to reconstruct
   // multi-word labels that may be split across multiple text chunks
@@ -640,7 +643,9 @@ async function buildSmartAutoAnnotations(pdfPage, patientData) {
 
     for (const alias of aliases) {
       const aliasLower = alias.toLowerCase()
-      for (const row of rowTexts) {
+      for (let rowIdx = 0; rowIdx < rowTexts.length; rowIdx++) {
+        if (usedRowIndices.has(rowIdx)) continue // skip rows already annotated
+        const row = rowTexts[rowIdx]
         // Check if this row contains the alias
         if (row.combined.includes(aliasLower)) {
           // Find the rightmost item in this row as the label's right edge
@@ -650,7 +655,7 @@ async function buildSmartAutoAnnotations(pdfPage, patientData) {
             i.text.toLowerCase().includes(aliasLower.split(' ').pop())
           ) || sortedItems[sortedItems.length - 1]
 
-          matched = { row, labelItem, alias }
+          matched = { row, labelItem, alias, rowIdx }
           break
         }
       }
@@ -659,6 +664,7 @@ async function buildSmartAutoAnnotations(pdfPage, patientData) {
 
     if (!matched) continue
     usedKeys.add(fieldDef.key)
+    usedRowIndices.add(matched.rowIdx) // mark this row as used
 
     const { row, labelItem } = matched
 
@@ -688,6 +694,75 @@ async function buildSmartAutoAnnotations(pdfPage, patientData) {
       _autofilled: true,
       _baselineY:  true,        // tells redrawAll to use textBaseline='alphabetic'
       _label:      matched.alias,
+    })
+  }
+
+  // ── Positional fallback ────────────────────────────────────────────────────
+  // If patient_name wasn't matched (form has a blank rectangle with no text labels),
+  // find the first clear vertical gap in the top 55% of the page and inject a
+  // formatted patient card directly into that blank space.
+  if (!usedKeys.has('patient_name') && values.patient_name) {
+    // Build a list of occupied yFrac bands from the text items
+    const occupiedBands = textItems.map(item => ({
+      top:    (pageH - item.y - item.height) / pageH,
+      bottom: (pageH - item.y) / pageH,
+    }))
+
+    // Find the first gap >= 6% page-height in the top 55%
+    const SCAN_LIMIT = 0.55
+    const MIN_GAP    = 0.06
+
+    let gapStart = null
+    // Scan from 5% downward in 0.5% steps
+    outer: for (let yf = 0.05; yf < SCAN_LIMIT; yf += 0.005) {
+      const occupied = occupiedBands.some(b => yf >= b.top && yf <= b.bottom)
+      if (!occupied) {
+        // Potential gap start
+        if (gapStart === null) gapStart = yf
+        // Check if gap is wide enough
+        if (yf - gapStart >= MIN_GAP) break outer
+      } else {
+        gapStart = null // reset
+      }
+    }
+
+    const insertY = gapStart !== null ? gapStart + 0.01 : 0.20  // fallback to 20%
+
+    const lines = [
+      [
+        values.patient_name && `Name: ${values.patient_name}`,
+        values.age_gender   && `Age/Sex: ${values.age_gender}`,
+        values.today_date   && `Date: ${values.today_date}`,
+      ].filter(Boolean),
+      [
+        values.reg_no      && `UHID: ${values.reg_no}`,
+        values.consultant  && `Dr: ${values.consultant}`,
+        values.department  && `Dept: ${values.department}`,
+      ].filter(Boolean),
+      [
+        values.phone       && `Ph: ${values.phone}`,
+        values.room_bed    && `Bed: ${values.room_bed}`,
+        values.blood_group && `Blood: ${values.blood_group}`,
+      ].filter(Boolean),
+    ].filter(row => row.length > 0)
+
+    lines.forEach((row, lineIdx) => {
+      const colW = 1 / Math.max(row.length, 1)
+      row.forEach((text, colIdx) => {
+        annotations.push({
+          type:        'text',
+          content:     text,
+          xFrac:       0.04 + colIdx * Math.min(colW, 0.33),
+          yFrac:       insertY + lineIdx * 0.035,
+          x: 0, y: 0,
+          color:       '#1e3a5f',
+          lineWidth:   2.2,
+          page:        1,
+          _autofilled: true,
+          _baselineY:  false,
+          _label:      'fallback',
+        })
+      })
     })
   }
 
@@ -1184,16 +1259,47 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
         </button>
       </div>
 
-      {/* Patient info strip — shown below toolbar when patient data available */}
-      {infoStrip && (
-        <div style={{ background: 'linear-gradient(90deg, rgba(99,102,241,0.15), rgba(13,148,136,0.12))', borderBottom: '1px solid rgba(99,102,241,0.2)', padding: '0.5rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
-          <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#a5b4fc', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>Patient Info</span>
-          <span style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.75)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{infoStrip}</span>
+      {/* ── Patient details banner ── */}
+      {patientData && (
+        <div style={{
+          background: 'linear-gradient(90deg, rgba(99,102,241,0.18), rgba(13,148,136,0.14))',
+          borderBottom: '1px solid rgba(99,102,241,0.22)',
+          padding: '0.5rem 1.25rem',
+          display: 'flex', alignItems: 'center', gap: '1rem',
+          flexShrink: 0, flexWrap: 'wrap',
+        }}>
+          {/* Avatar */}
+          <div style={{
+            width: 38, height: 38, borderRadius: '50%',
+            background: 'linear-gradient(135deg, #6366f1, #0d9488)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontWeight: 800, color: '#fff', fontSize: '0.875rem', flexShrink: 0,
+          }}>
+            {(patientData.name || '?').split(' ').map(n => n[0]).join('').slice(0, 2)}
+          </div>
+
+          {/* Fields */}
+          {[
+            { label: 'Patient',    value: patientData.name },
+            { label: 'Age / Sex',  value: [patientData.age ? `${patientData.age} Y` : null, patientData.gender].filter(Boolean).join(' / ') },
+            { label: 'UHID',       value: patientData.id },
+            { label: 'Doctor',     value: patientData.doctor_name ? `Dr. ${patientData.doctor_name}` : null },
+            { label: 'Dept',       value: patientData.department },
+            { label: 'Phone',      value: patientData.phone },
+            { label: 'Admitted',   value: patientData.admitted_at ? new Date(patientData.admitted_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null },
+          ].filter(f => f.value).map((f, i) => (
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', minWidth: 0 }}>
+              <span style={{ fontSize: '0.58rem', fontWeight: 700, color: 'rgba(165,180,252,0.7)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>{f.label}</span>
+              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{f.value}</span>
+            </div>
+          ))}
+
+          {/* Toggle sidebar button */}
           <button
             onClick={() => setShowInfoPanel(v => !v)}
-            style={{ marginLeft: 'auto', background: showInfoPanel ? 'rgba(99,102,241,0.3)' : 'rgba(255,255,255,0.08)', border: 'none', borderRadius: 6, padding: '0.25rem 0.6rem', color: '#a5b4fc', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}
+            style={{ marginLeft: 'auto', background: showInfoPanel ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.08)', border: 'none', borderRadius: 6, padding: '0.3rem 0.7rem', color: '#a5b4fc', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}
           >
-            {showInfoPanel ? '✕ Hide' : '📋 Details'}
+            {showInfoPanel ? '✕ Hide Details' : '📋 Full Details'}
           </button>
         </div>
       )}

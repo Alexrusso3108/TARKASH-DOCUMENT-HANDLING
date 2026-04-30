@@ -36,6 +36,7 @@ import StaffManagement from './pages/StaffManagement'
 import FormTemplates from './pages/FormTemplates'
 import PatientForms from './pages/PatientForms'
 import DischargeSummaryTemplates from './pages/DischargeSummaryTemplates'
+import AuditLog from './pages/AuditLog'
 
 /** Redirects unauthenticated users to login */
 function PrivateRoute({ children }) {
@@ -129,9 +130,10 @@ export default function App() {
         <Route path="settings" element={<Settings />} />
 
         {/* Admin-only */}
-        <Route path="staff" element={<AdminRoute><StaffManagement /></AdminRoute>} />
+        <Route path="staff"          element={<AdminRoute><StaffManagement /></AdminRoute>} />
         <Route path="form-templates" element={<AdminRoute><FormTemplates /></AdminRoute>} />
-        <Route path="modules" element={<AdminRoute><ComingSoon title="Module Overview" /></AdminRoute>} />
+        <Route path="audit-log"      element={<AdminRoute><AuditLog /></AdminRoute>} />
+        <Route path="modules"        element={<AdminRoute><ComingSoon title="Module Overview" /></AdminRoute>} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

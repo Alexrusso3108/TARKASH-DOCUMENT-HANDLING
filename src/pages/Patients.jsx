@@ -741,18 +741,26 @@ function PatientPanel({ patient, onClose }) {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
                         {dischargeSummaries.map(s => (
                           <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.875rem', background: '#fff', borderRadius: 'var(--radius-lg)', border: '1.5px solid var(--gray-100)', position: 'relative', overflow: 'hidden' }}>
-                            <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: s.status === 'completed' ? '#10b981' : s.status === 'in-progress' ? '#f59e0b' : 'var(--gray-200)', borderRadius: '3px 0 0 3px' }} />
-                            <div style={{ width: 36, height: 36, borderRadius: 8, background: 'linear-gradient(135deg, #059669, #10b981)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginLeft: '0.25rem' }}>
+                            <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: s.approved_by ? '#8b5cf6' : s.status === 'completed' ? '#10b981' : s.status === 'in-progress' ? '#f59e0b' : 'var(--gray-200)', borderRadius: '3px 0 0 3px' }} />
+                            <div style={{ width: 36, height: 36, borderRadius: 8, background: s.approved_by ? 'linear-gradient(135deg, #8b5cf6, #a78bfa)' : 'linear-gradient(135deg, #059669, #10b981)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginLeft: '0.25rem' }}>
                               <FileText size={16} color="#fff" />
                             </div>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontWeight: 700, fontSize: '0.8125rem', color: 'var(--gray-900)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.template_name}</div>
-                              <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '0.1rem 0.35rem', borderRadius: 999, background: s.status === 'completed' ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)', color: s.status === 'completed' ? '#059669' : '#b45309' }}>
-                                {s.status === 'completed' ? 'Completed' : s.status === 'in-progress' ? 'In Progress' : 'Blank'}
-                              </span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginTop: '0.2rem', flexWrap: 'wrap' }}>
+                                {s.approved_by ? (
+                                  <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '0.1rem 0.35rem', borderRadius: 999, background: 'rgba(139,92,246,0.1)', color: '#7c3aed' }}>
+                                    ✓ Approved by {s.approved_by}
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '0.1rem 0.35rem', borderRadius: 999, background: s.status === 'completed' ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)', color: s.status === 'completed' ? '#059669' : '#b45309' }}>
+                                    {s.status === 'completed' ? 'Completed' : s.status === 'in-progress' ? 'In Progress' : 'Blank'}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                             <button onClick={() => setOpenForm({ ...s, type: 'discharge' })} style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: '#059669', color: '#fff', border: 'none', borderRadius: 6, padding: '0.35rem 0.625rem', fontSize: '0.7rem', fontWeight: 600, cursor: 'pointer' }}>
-                              <Pen size={11} /> Open
+                              <Pen size={11} /> {s.approved_by ? 'View' : 'Open'}
                             </button>
                           </div>
                         ))}

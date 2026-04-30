@@ -14,7 +14,7 @@ import {
   Wallet, CreditCard, FileCheck, BadgePercent, Bell, Layers,
   Globe, Zap, Link, Ambulance, Settings, Users2, Database,
   ReceiptText, BookOpen, TrendingUpIcon, PieChart as PieChartIcon,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, ShieldAlert
 } from 'lucide-react'
 import { api } from '../api'
 
@@ -167,26 +167,6 @@ const MODULE_TABS = [
       { icon: HeartPulse, label: 'Critical Care', path: '/app/emergency', color: '#0d9488' },
     ],
   },
-]
-
-// ─── Chart static data ────────────────────────────────────────────────────────
-const admissionsData = [
-  { day: 'Mon', ipd: 28, opd: 85 }, { day: 'Tue', ipd: 35, opd: 92 },
-  { day: 'Wed', ipd: 31, opd: 78 }, { day: 'Thu', ipd: 42, opd: 110 },
-  { day: 'Fri', ipd: 38, opd: 96 }, { day: 'Sat', ipd: 22, opd: 64 },
-  { day: 'Sun', ipd: 18, opd: 52 },
-]
-const revenueData = [
-  { month: 'Sep', revenue: 3.2 }, { month: 'Oct', revenue: 4.1 },
-  { month: 'Nov', revenue: 3.8 }, { month: 'Dec', revenue: 5.2 },
-  { month: 'Jan', revenue: 4.7 }, { month: 'Feb', revenue: 6.1 },
-]
-const deptData = [
-  { name: 'General Ward', value: 35, color: '#6366f1' },
-  { name: 'ICU', value: 22, color: '#0d9488' },
-  { name: 'Cardiology', value: 18, color: '#0ea5e9' },
-  { name: 'Ortho', value: 14, color: '#f59e0b' },
-  { name: 'Paediatrics', value: 11, color: '#10b981' },
 ]
 
 const STATUS_COLORS = {
@@ -415,16 +395,25 @@ export default function Dashboard() {
   const timeLabel = now.getHours() < 12 ? 'Good morning' : now.getHours() < 17 ? 'Good afternoon' : 'Good evening'
   const dateStr = now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 
+  const fmt = (n) => n >= 1e5 ? `₹${(n/1e5).toFixed(1)}L` : n >= 1000 ? `₹${(n/1000).toFixed(0)}K` : `₹${Math.round(n)}`
+
   const STATS = [
-    { label: 'Total Patients', value: loading ? '…' : (stats?.totalPatients?.toLocaleString() ?? '1,284'), change: '+8.2%', dir: 'up', icon: Users, iconBg: 'gradient-primary', sub: 'Active in system' },
-    { label: 'Bed Occupancy', value: loading ? '…' : (stats?.bedOccupancy ?? '89%'), change: '+4.1%', dir: 'up', icon: BedDouble, iconBg: 'gradient-teal', sub: stats?.bedDetail ?? '142/160 beds occupied' },
-    { label: 'Pending Notes', value: loading ? '…' : (stats?.pendingNotes ?? '23'), change: '-12%', dir: 'down', icon: FileText, iconBg: 'gradient-amber', sub: 'Awaiting digitization' },
-    { label: 'Discharges Today', value: loading ? '…' : (stats?.dischargesToday ?? '47'), change: '+22%', dir: 'up', icon: Activity, iconBg: 'gradient-green', sub: 'Faster than avg by 2hr' },
+    { label: 'Total Patients',    value: loading ? '…' : (stats?.totalPatients?.toLocaleString() ?? '0'), change: '+8.2%', dir: 'up',   icon: Users,     iconBg: 'gradient-primary', sub: 'Active in system' },
+    { label: 'Bed Occupancy',     value: loading ? '…' : (stats?.bedOccupancy ?? '0%'),                  change: '+4.1%', dir: 'up',   icon: BedDouble, iconBg: 'gradient-teal',   sub: stats?.bedDetail ?? '0/0 beds' },
+    { label: 'Pending Notes',     value: loading ? '…' : (stats?.pendingNotes ?? '0'),                   change: '-12%',  dir: 'down', icon: FileText,  iconBg: 'gradient-amber',  sub: 'Awaiting digitization' },
+    { label: 'Today OPD',        value: loading ? '…' : (stats?.todayOPD ?? '0'),                       change: '+5%',   dir: 'up',   icon: Activity,  iconBg: 'gradient-green',  sub: 'Visits today' },
+    { label: 'Revenue (Month)',   value: loading ? '…' : fmt(stats?.monthRevenue ?? 0),                  change: stats?.revenueChange ?? '+0%', dir: (stats?.revenueChange||'+0%').startsWith('-')?'down':'up', icon: TrendingUp, iconBg: 'gradient-primary', sub: 'vs last month' },
+    { label: 'Pending Lab Tests', value: loading ? '…' : (stats?.pendingLab ?? '0'),                    change: '',      dir: 'up',   icon: FlaskConical, iconBg: 'gradient-teal', sub: 'Awaiting results' },
+    { label: 'Critical Patients', value: loading ? '…' : (stats?.criticalPatients ?? '0'),              change: '',      dir: 'up',   icon: HeartPulse, iconBg: 'gradient-amber', sub: 'Require urgent care' },
+    { label: 'Today Revenue',     value: loading ? '…' : fmt(stats?.todayRevenue ?? 0),                 change: '',      dir: 'up',   icon: Receipt,   iconBg: 'gradient-green',  sub: 'Billed today' },
   ]
 
   const activeTabData = MODULE_TABS.find(t => t.id === activeTab)
-  const recentPatients = stats?.recentPatients ?? []
-  const pendingNoteList = stats?.pendingNotesList ?? []
+  const recentPatients    = stats?.recentPatients    ?? []
+  const pendingNoteList   = stats?.pendingNotesList  ?? []
+  const admissionsData    = stats?.weeklyAdmissions  ?? []
+  const revenueData       = stats?.monthlyRevenue    ?? []
+  const deptData          = stats?.deptBreakdown     ?? []
 
   return (
     <div className="animate-fadeInUp">
@@ -444,18 +433,20 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* STAT CARDS */}
+      {/* STAT CARDS — 2 rows of 4 */}
       <div className="grid grid-4" style={{ gap: '1.25rem', marginBottom: '1.75rem' }}>
         {STATS.map((s, i) => (
-          <div key={i} className="stat-card animate-fadeInUp" style={{ animationDelay: `${i * 0.07}s` }}>
+          <div key={i} className="stat-card animate-fadeInUp" style={{ animationDelay: `${i * 0.06}s` }}>
             <div className="flex items-center justify-between" style={{ marginBottom: '1rem' }}>
               <div className={`stat-card-icon ${s.iconBg}`} style={{ margin: 0 }}>
                 <s.icon size={20} color="#fff" />
               </div>
-              <span className={`stat-change ${s.dir}`} style={{ fontWeight: 700 }}>
-                {s.dir === 'up' ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
-                {s.change}
-              </span>
+              {s.change && (
+                <span className={`stat-change ${s.dir}`} style={{ fontWeight: 700 }}>
+                  {s.dir === 'up' ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
+                  {s.change}
+                </span>
+              )}
             </div>
             <div className="stat-value">{s.value}</div>
             <div className="stat-label">{s.label}</div>

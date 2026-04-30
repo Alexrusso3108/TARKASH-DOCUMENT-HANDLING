@@ -109,6 +109,9 @@ export const api = {
   // Dashboard
   getDashboardStats: () => request('GET', '/dashboard/stats'),
 
+  // Audit Logs
+  getAuditLogs: (params = {}) => request('GET', `/audit-logs?${new URLSearchParams(params)}`),
+
   // Hospital Profile
   getHospital: () => request('GET', '/hospital'),
   updateHospital: (data) => request('PATCH', '/hospital', data),
@@ -140,6 +143,7 @@ export const api = {
   createDischargeSummary: (data) => request('POST', '/discharge-summaries', data),
   saveDischargeSummaryAnnotations: (id, data) => request('PATCH', `/discharge-summaries/${id}`, data),
   getDischargeSummaryInstance: (id) => request('GET', `/discharge-summaries/${id}`),
+  approveDischargeSummary: (id, data) => request('PATCH', `/discharge-summaries/${id}/approve`, data),
 
   // Reports
   getReports: () => request('GET', '/reports'),

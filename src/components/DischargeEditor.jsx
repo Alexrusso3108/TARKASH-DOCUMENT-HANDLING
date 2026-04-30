@@ -3,9 +3,10 @@ import { createPortal } from 'react-dom'
 import {
   X, Download, Save, Loader, CheckCircle, ChevronLeft,
   Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight,
-  Type, Printer, RotateCcw,
+  Type, Printer, RotateCcw, CheckCheck,
 } from 'lucide-react'
 import { SERVER_URL, BASE_URL, api } from '../api'
+import { useAuth } from '../context/AuthContext'
 
 // ─── Patient field substitution map ──────────────────────────────────────────
 const FIELD_ALIASES = [
@@ -220,16 +221,24 @@ function ToolBtn({ onClick, active, title, children, disabled }) {
 
 // ─── Main Editor ─────────────────────────────────────────────────────────────
 export default function DischargeEditor({ formInstance, patientData, onClose, onSaved }) {
+  const { user, isAdmin } = useAuth()
   const [content, setContent]     = useState('')
   const [loading, setLoading]     = useState(true)
   const [error, setError]         = useState(null)
   const [saving, setSaving]       = useState(false)
   const [saved, setSaved]         = useState(false)
+  const [approving, setApproving] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [fontFamily, setFontFamily]   = useState('Arial')
   const [fontSize, setFontSize]       = useState('12')
   const editorRef = useRef(null)
   const pdfUrl    = `${SERVER_URL}${formInstance.file_path}`
+  
+  const isApproved = !!formInstance.approved_by
+  const isDoctor = user?.role === 'doctor' || isAdmin
+  const canApprove = isDoctor && !isApproved
+  // Once approved, only admins may edit
+  const canEdit = !isApproved || isAdmin
 
   // ── Load PDF and extract text ──────────────────────────────────────────────
   useEffect(() => {
@@ -305,7 +314,7 @@ export default function DischargeEditor({ formInstance, patientData, onClose, on
     const html = editorRef.current.innerHTML
     setSaving(true)
     try {
-      const token = localStorage.getItem('hms_token')
+      const token = localStorage.getItem('swasthyasync_token')
       await fetch(`${BASE_URL}/discharge-summaries/${formInstance.id}/text`, {
         method: 'PATCH',
         headers: {
@@ -319,6 +328,32 @@ export default function DischargeEditor({ formInstance, patientData, onClose, on
       if (onSaved) onSaved(html)
     } catch (e) { alert('Save failed: ' + e.message) }
     finally { setSaving(false) }
+  }
+
+  // ── Approve discharge summary (doctors only) ──────────────────────────────
+  const handleApprove = async () => {
+    if (!canApprove) return
+    
+    const confirmMsg = `Approve this discharge summary?\n\nOnce approved, it will be saved to the patient's medical records.\n\nApproved by: ${user.name || user.username}`
+    if (!confirm(confirmMsg)) return
+    
+    setApproving(true)
+    try {
+      const updated = await api.approveDischargeSummary(formInstance.id, {
+        approved_by: user.name || user.username
+      })
+      
+      // Update the formInstance with approval data
+      Object.assign(formInstance, updated)
+      
+      alert(`✅ Discharge summary approved successfully!\n\nApproved by: ${updated.approved_by}\nApproved at: ${new Date(updated.approved_at).toLocaleString('en-IN')}`)
+      
+      if (onSaved) onSaved(editorRef.current?.innerHTML)
+    } catch (e) {
+      alert('Approval failed: ' + e.message)
+    } finally {
+      setApproving(false)
+    }
   }
 
   // ── Download as PDF via html2pdf ──────────────────────────────────────────
@@ -433,16 +468,45 @@ export default function DischargeEditor({ formInstance, patientData, onClose, on
           {downloading ? ' Generating…' : ' Download PDF'}
         </button>
 
-        <button onClick={handleSave} disabled={saving} style={{
-          display: 'flex', alignItems: 'center', gap: '0.4rem',
-          background: saved ? 'rgba(16,185,129,0.85)' : 'rgba(16,185,129,0.7)',
-          border: 'none', borderRadius: 8, padding: '0.4rem 0.9rem',
-          color: '#fff', cursor: saving ? 'not-allowed' : 'pointer',
-          fontSize: '0.825rem', fontWeight: 600,
-        }}>
-          {saving ? <Loader size={14} className="spin" /> : saved ? <CheckCircle size={14} /> : <Save size={14} />}
-          {saving ? ' Saving…' : saved ? ' Saved!' : ' Save'}
-        </button>
+        {canEdit && (
+          <button onClick={handleSave} disabled={saving} style={{
+            display: 'flex', alignItems: 'center', gap: '0.4rem',
+            background: saved ? 'rgba(16,185,129,0.85)' : 'rgba(16,185,129,0.7)',
+            border: 'none', borderRadius: 8, padding: '0.4rem 0.9rem',
+            color: '#fff', cursor: saving ? 'not-allowed' : 'pointer',
+            fontSize: '0.825rem', fontWeight: 600,
+          }}>
+            {saving ? <Loader size={14} className="spin" /> : saved ? <CheckCircle size={14} /> : <Save size={14} />}
+            {saving ? ' Saving…' : saved ? ' Saved!' : ' Save'}
+          </button>
+        )}
+
+        {canApprove && (
+          <button onClick={handleApprove} disabled={approving} style={{
+            display: 'flex', alignItems: 'center', gap: '0.4rem',
+            background: approving ? 'rgba(139,92,246,0.5)' : 'rgba(139,92,246,0.85)',
+            border: 'none', borderRadius: 8, padding: '0.4rem 0.9rem',
+            color: '#fff', cursor: approving ? 'not-allowed' : 'pointer',
+            fontSize: '0.825rem', fontWeight: 600,
+          }}>
+            {approving ? <Loader size={14} className="spin" /> : <CheckCheck size={14} />}
+            {approving ? ' Approving…' : ' Approve & Save'}
+          </button>
+        )}
+
+        {isApproved && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '0.5rem',
+            background: 'rgba(139,92,246,0.9)',
+            border: '1px solid rgba(139,92,246,1)',
+            borderRadius: 8, padding: '0.45rem 1rem',
+            color: '#fff', fontSize: '0.825rem', fontWeight: 700,
+            whiteSpace: 'nowrap',
+          }}>
+            <CheckCheck size={15} />
+            Approved by {formInstance.approved_by}
+          </div>
+        )}
 
         <button onClick={onClose} style={{
           background: 'rgba(239,68,68,0.15)', border: 'none', borderRadius: 8,
@@ -453,8 +517,25 @@ export default function DischargeEditor({ formInstance, patientData, onClose, on
         </button>
       </div>
 
-      {/* ── Formatting toolbar ── */}
-      <div style={{
+      {/* ── Read-only banner (approved, non-admin) ── */}
+      {isApproved && !isAdmin && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '0.625rem',
+          padding: '0.5rem 1.25rem',
+          background: 'rgba(139,92,246,0.12)',
+          borderBottom: '1px solid rgba(139,92,246,0.25)',
+          flexShrink: 0,
+        }}>
+          <CheckCheck size={15} style={{ color: '#7c3aed', flexShrink: 0 }} />
+          <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#6d28d9' }}>
+            This discharge summary has been approved by <strong>{formInstance.approved_by}</strong> and is now locked.
+            Only administrators can make further changes.
+          </span>
+        </div>
+      )}
+
+      {/* ── Formatting toolbar (hidden for non-admin when approved) ── */}
+      {canEdit && <div style={{
         display: 'flex', alignItems: 'center', gap: '0.25rem', padding: '0.375rem 1rem',
         background: '#fff', borderBottom: '1px solid #e2e8f0', flexShrink: 0, flexWrap: 'wrap',
       }}>
@@ -493,7 +574,7 @@ export default function DischargeEditor({ formInstance, patientData, onClose, on
             onChange={e => exec('foreColor', e.target.value)}
             style={{ width: 36, height: 28, border: '1px solid #d1d5db', borderRadius: 5, cursor: 'pointer', paddingLeft: 18, paddingRight: 0 }} />
         </div>
-      </div>
+      </div>}
 
       {/* ── Patient info strip ── */}
       {patientData && (
@@ -520,9 +601,9 @@ export default function DischargeEditor({ formInstance, patientData, onClose, on
         ) : (
           <div
             ref={editorRef}
-            contentEditable
+            contentEditable={canEdit}
             suppressContentEditableWarning
-            spellCheck
+            spellCheck={canEdit}
             onClick={handleEditorClick}
             style={{
               margin: '0 auto',
@@ -537,8 +618,9 @@ export default function DischargeEditor({ formInstance, patientData, onClose, on
               color: '#111',
               outline: 'none',
               borderRadius: 4,
-              // Paragraph spacing
               wordBreak: 'break-word',
+              cursor: canEdit ? 'text' : 'default',
+              userSelect: canEdit ? 'text' : 'none',
             }}
           />
         )}

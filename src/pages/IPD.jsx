@@ -923,24 +923,30 @@ export default function IPD() {
                                   position: 'relative', overflow: 'hidden',
                                 }}
                               >
-                                <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: s.status === 'completed' ? '#10b981' : s.status === 'in-progress' ? '#f59e0b' : 'var(--gray-200)', borderRadius: '4px 0 0 4px' }} />
-                                <div style={{ width: 36, height: 36, borderRadius: 9, background: 'linear-gradient(135deg, #059669, #10b981)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: '0.375rem', flexShrink: 0 }}>
+                                <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: s.approved_by ? '#8b5cf6' : s.status === 'completed' ? '#10b981' : s.status === 'in-progress' ? '#f59e0b' : 'var(--gray-200)', borderRadius: '4px 0 0 4px' }} />
+                                <div style={{ width: 36, height: 36, borderRadius: 9, background: s.approved_by ? 'linear-gradient(135deg, #8b5cf6, #a78bfa)' : 'linear-gradient(135deg, #059669, #10b981)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: '0.375rem', flexShrink: 0 }}>
                                   <FileText size={16} color="#fff" />
                                 </div>
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                   <div style={{ fontWeight: 700, fontSize: '0.8125rem', color: 'var(--gray-900)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.template_name}</div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginTop: '0.2rem' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem', marginTop: '0.2rem', flexWrap: 'wrap' }}>
                                     <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '0.1rem 0.35rem', borderRadius: 999, textTransform: 'uppercase', background: 'var(--gray-100)', color: 'var(--gray-600)' }}>{s.category}</span>
-                                    <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '0.1rem 0.35rem', borderRadius: 999, background: s.status === 'completed' ? 'rgba(16,185,129,0.1)' : s.status === 'in-progress' ? 'rgba(245,158,11,0.1)' : 'var(--gray-100)', color: s.status === 'completed' ? '#059669' : s.status === 'in-progress' ? '#b45309' : 'var(--gray-500)' }}>
-                                      {s.status === 'in-progress' ? 'In Progress' : s.status === 'completed' ? 'Completed' : 'Blank'}
-                                    </span>
+                                    {s.approved_by ? (
+                                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.7rem', fontWeight: 700, padding: '0.2rem 0.5rem', borderRadius: 999, background: 'rgba(139,92,246,0.15)', color: '#6d28d9', border: '1px solid rgba(139,92,246,0.35)' }}>
+                                        ✓ Approved by {s.approved_by}
+                                      </span>
+                                    ) : (
+                                      <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '0.1rem 0.35rem', borderRadius: 999, background: s.status === 'completed' ? 'rgba(16,185,129,0.1)' : s.status === 'in-progress' ? 'rgba(245,158,11,0.1)' : 'var(--gray-100)', color: s.status === 'completed' ? '#059669' : s.status === 'in-progress' ? '#b45309' : 'var(--gray-500)' }}>
+                                        {s.status === 'in-progress' ? 'In Progress' : s.status === 'completed' ? 'Completed' : 'Blank'}
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                                 <button
                                   onClick={() => setActiveForm({ ...s, type: 'discharge' })}
                                   style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', background: '#059669', color: '#fff', border: 'none', borderRadius: 7, padding: '0.45rem 0.75rem', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}
                                 >
-                                  <Pen size={12} /> Fill / View
+                                  <Pen size={12} /> {s.approved_by ? 'View' : 'Fill / View'}
                                 </button>
                               </div>
                             ))}

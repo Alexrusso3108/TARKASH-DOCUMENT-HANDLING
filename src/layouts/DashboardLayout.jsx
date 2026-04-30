@@ -5,7 +5,7 @@ import {
   FileText, FlaskConical, Pill, Receipt, BarChart2, Settings,
   Bell, Search, Menu, LogOut, ChevronRight, Activity, ShieldCheck,
   ClipboardList, FolderOpen, ScanLine, HeartPulse, Syringe, Calendar,
-  Building2, LayoutGrid, Thermometer, Ambulance, PackageOpen, AlertTriangle
+  Building2, LayoutGrid, Thermometer, Ambulance, PackageOpen, AlertTriangle, ShieldAlert
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../api'
@@ -75,9 +75,10 @@ const BASE_NAV = [
 const ADMIN_NAV = {
   section: 'Admin',
   items: [
-    { label: 'Staff Management',       path: '/app/staff',               icon: ShieldCheck },
-    { label: 'Form Templates',         path: '/app/form-templates',      icon: FolderOpen },
-    { label: 'Module Overview',        path: '/app/modules',             icon: LayoutGrid },
+    { label: 'Staff Management', path: '/app/staff',          icon: ShieldCheck },
+    { label: 'Form Templates',   path: '/app/form-templates', icon: FolderOpen },
+    { label: 'Audit Trail',      path: '/app/audit-log',      icon: ShieldAlert },
+    { label: 'Module Overview',  path: '/app/modules',        icon: LayoutGrid },
   ],
 }
 
