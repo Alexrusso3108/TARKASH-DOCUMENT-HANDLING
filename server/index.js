@@ -222,38 +222,6 @@ async function initDB() {
       )`,
       `CREATE INDEX IF NOT EXISTS idx_audit_hospital ON audit_logs(hospital_id)`,
       `CREATE INDEX IF NOT EXISTS idx_audit_created  ON audit_logs(created_at)`,
-
-      // ── Backfill audit from existing data (runs once, idempotent) ──
-      `INSERT INTO audit_logs (hospital_id, user_name, user_role, action, resource, resource_id, details, created_at)
-       SELECT p.hospital_id, 'System (Historical)', 'admin', 'PATIENT_CREATED', 'patients', p.id::text,
-              'Patient registered: ' || p.name || ' (' || COALESCE(p.admission_type,'OPD') || ')',
-              COALESCE(p.admitted_at, p.created_at, NOW())
-       FROM patients p
-       WHERE p.hospital_id IS NOT NULL
-         AND NOT EXISTS (
-           SELECT 1 FROM audit_logs al
-           WHERE al.resource = 'patients' AND al.resource_id = p.id::text AND al.action = 'PATIENT_CREATED'
-         )`,
-      `INSERT INTO audit_logs (hospital_id, user_name, user_role, action, resource, resource_id, details, created_at)
-       SELECT b.hospital_id, 'System (Historical)', 'admin', 'BILLING_CREATED', 'billing', b.id::text,
-              'Invoice ' || b.id || ' - ₹' || b.total_amount::text || ' (' || b.status || ')',
-              COALESCE(b.created_at, NOW())
-       FROM billing b
-       WHERE b.hospital_id IS NOT NULL
-         AND NOT EXISTS (
-           SELECT 1 FROM audit_logs al
-           WHERE al.resource = 'billing' AND al.resource_id = b.id::text
-         )`,
-      `INSERT INTO audit_logs (hospital_id, user_name, user_role, action, resource, resource_id, details, created_at)
-       SELECT l.hospital_id, 'System (Historical)', 'lab_tech', 'LAB_ORDER_CREATED', 'lab_tests', l.id::text,
-              'Lab test ordered: ' || l.test_name || ' (' || l.priority || ')',
-              COALESCE(l.ordered_at, NOW())
-       FROM lab_tests l
-       WHERE l.hospital_id IS NOT NULL
-         AND NOT EXISTS (
-           SELECT 1 FROM audit_logs al
-           WHERE al.resource = 'lab_tests' AND al.resource_id = l.id::text
-         )`,
     ]
     for (const sql of safeMigrations) {
       await c.query(sql)
@@ -653,7 +621,6 @@ app.post('/api/opd', requireAuth, async (req, res) => {
 
     await client.query('COMMIT')
     res.status(201).json(rows[0])
-    logAudit(req, 'OPD_VISIT_CREATED', 'opd_visits', rows[0].id, `OPD visit registered — Token: ${token}, Dept: ${department}`)
   } catch (e) {
     await client.query('ROLLBACK')
     res.status(500).json({ error: e.message })
@@ -777,7 +744,6 @@ app.post('/api/lab', requireAuth, async (req, res) => {
       [req.user.hospitalId, patient_id, test_name, category, requested_by, priority || 'Routine']
     )
     res.status(201).json(rows[0])
-    logAudit(req, 'LAB_ORDER_CREATED', 'lab_tests', rows[0].id, `Lab test ordered: ${test_name} (${priority||'Routine'}) for patient ${patient_id}`)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 
@@ -1045,9 +1011,10 @@ app.patch('/api/discharge-summaries/:id/approve', requireAuth, async (req, res) 
     )
     if (!rows.length) return res.status(404).json({ error: 'Summary instance not found' })
     res.json(rows[0])
-    logAudit(req, 'DISCHARGE_APPROVED', 'discharge_summaries', req.params.id, `Discharge summary approved by ${approved_by}`)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
+
+// GET — get single instance
 app.get('/api/discharge-summaries/:id', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -1201,7 +1168,6 @@ app.post('/api/billing', requireAuth, async (req, res) => {
       [newId, hid, patient_id, total_amount, paid_amount || 0, status, payment_method, type]
     )
     res.status(201).json(rows[0])
-    logAudit(req, 'BILLING_CREATED', 'billing', rows[0].id, `Invoice ${newId} — ₹${total_amount} (${status}) via ${payment_method||'Cash'}`)
   } catch (e) { res.status(500).json({ error: e.message }) }
 })
 

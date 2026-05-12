@@ -38,7 +38,7 @@ export default function NursingStation() {
     if (!patientId) return
     setLoading(true)
     try {
-      const allNotes = await api.getClinicalNotes(patientId)
+      const allNotes = await api.getNotes({ patient_id: patientId })
       setVitals(allNotes.filter(n => n.note_type === 'VITALS').map(n => ({ id: n.id, date: n.created_at, ...JSON.parse(n.content) })))
       setEmar(allNotes.filter(n => n.note_type === 'EMAR').map(n => ({ id: n.id, date: n.created_at, ...JSON.parse(n.content) })))
       setNotes(allNotes.filter(n => n.note_type === 'NURSING_NOTE').map(n => ({ id: n.id, date: n.created_at, ...JSON.parse(n.content) })))
@@ -57,7 +57,7 @@ export default function NursingStation() {
 
   const handleSaveData = async (type, data) => {
     try {
-      await api.createClinicalNote({
+      await api.createNote({
         patient_id: selectedPatient.id,
         doctor_id: 'NURSE_01', // Logged in user mock
         note_type: type,
@@ -79,7 +79,7 @@ export default function NursingStation() {
       delete updatedData.date
       // To simulate update, we create a new note and it acts as the latest status, or we just add a new note. 
       // For simplicity, we just add a new note representing the updated status.
-      await api.createClinicalNote({
+      await api.createNote({
         patient_id: selectedPatient.id,
         doctor_id: 'NURSE_01',
         note_type: 'EMAR',
