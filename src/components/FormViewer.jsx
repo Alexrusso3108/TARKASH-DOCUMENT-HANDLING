@@ -702,57 +702,36 @@ async function buildSmartAutoAnnotations(pdfPage, patientData) {
   // find the first clear vertical gap in the top 55% of the page and inject a
   // formatted patient card directly into that blank space.
   if (!usedKeys.has('patient_name') && values.patient_name) {
-    // Build a list of occupied yFrac bands from the text items
-    const occupiedBands = textItems.map(item => ({
-      top:    (pageH - item.y - item.height) / pageH,
-      bottom: (pageH - item.y) / pageH,
-    }))
-
-    // Find the first gap >= 6% page-height in the top 55%
-    const SCAN_LIMIT = 0.55
-    const MIN_GAP    = 0.06
-
-    let gapStart = null
-    // Scan from 5% downward in 0.5% steps
-    outer: for (let yf = 0.05; yf < SCAN_LIMIT; yf += 0.005) {
-      const occupied = occupiedBands.some(b => yf >= b.top && yf <= b.bottom)
-      if (!occupied) {
-        // Potential gap start
-        if (gapStart === null) gapStart = yf
-        // Check if gap is wide enough
-        if (yf - gapStart >= MIN_GAP) break outer
-      } else {
-        gapStart = null // reset
-      }
-    }
-
-    const insertY = gapStart !== null ? gapStart + 0.01 : 0.20  // fallback to 20%
+    // Place a "patient sticker" in the top-right corner where forms usually have white space.
+    // The previous gap detection logic failed because logos/images don't have text layers.
+    const insertY = 0.04;
+    const startX = 0.58;
 
     const lines = [
       [
         values.patient_name && `Name: ${values.patient_name}`,
         values.age_gender   && `Age/Sex: ${values.age_gender}`,
-        values.today_date   && `Date: ${values.today_date}`,
       ].filter(Boolean),
       [
         values.reg_no      && `UHID: ${values.reg_no}`,
+        values.today_date   && `Date: ${values.today_date}`,
+      ].filter(Boolean),
+      [
         values.consultant  && `Dr: ${values.consultant}`,
         values.department  && `Dept: ${values.department}`,
       ].filter(Boolean),
       [
-        values.phone       && `Ph: ${values.phone}`,
         values.room_bed    && `Bed: ${values.room_bed}`,
         values.blood_group && `Blood: ${values.blood_group}`,
       ].filter(Boolean),
     ].filter(row => row.length > 0)
 
     lines.forEach((row, lineIdx) => {
-      const colW = 1 / Math.max(row.length, 1)
       row.forEach((text, colIdx) => {
         annotations.push({
           type:        'text',
           content:     text,
-          xFrac:       0.04 + colIdx * Math.min(colW, 0.33),
+          xFrac:       startX + colIdx * 0.22,
           yFrac:       insertY + lineIdx * 0.035,
           x: 0, y: 0,
           color:       '#1e3a5f',
