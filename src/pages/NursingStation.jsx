@@ -283,7 +283,7 @@ export default function NursingStation() {
 }
 
 function VitalsModal({ onClose, onSave }) {
-  const [form, setForm] = useState({ temp: '', bp: '', pulse: '', spo2: '', resp: '', nurse_name: 'RN. Duty' })
+  const [form, setForm] = useState({ temp: '', bp: '', pulse: '', spo2: '', resp: '', nurse_name: '' })
   return (
     <div className="modal-overlay">
       <div className="modal">
@@ -295,6 +295,7 @@ function VitalsModal({ onClose, onSave }) {
             <div className="form-group"><label className="form-label">Pulse (bpm)</label><input type="number" className="form-input" value={form.pulse} onChange={e => setForm({...form, pulse: e.target.value})} placeholder="72" /></div>
             <div className="form-group"><label className="form-label">SpO2 (%)</label><input type="number" className="form-input" value={form.spo2} onChange={e => setForm({...form, spo2: e.target.value})} placeholder="98" /></div>
             <div className="form-group"><label className="form-label">Respiration (bpm)</label><input type="number" className="form-input" value={form.resp} onChange={e => setForm({...form, resp: e.target.value})} placeholder="16" /></div>
+            <div className="form-group"><label className="form-label">Logged By</label><input className="form-input" value={form.nurse_name} onChange={e => setForm({...form, nurse_name: e.target.value})} placeholder="Enter your name" /></div>
           </div>
         </div>
         <div className="modal-footer">
@@ -340,7 +341,7 @@ function EmarModal({ onClose, onSave }) {
 }
 
 function NoteModal({ onClose, onSave }) {
-  const [form, setForm] = useState({ title: '', description: '', nurse_name: 'RN. Duty' })
+  const [form, setForm] = useState({ title: '', description: '', nurse_name: '' })
   return (
     <div className="modal-overlay">
       <div className="modal">
@@ -348,6 +349,7 @@ function NoteModal({ onClose, onSave }) {
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div className="form-group"><label className="form-label">Title / Context</label><input className="form-input" value={form.title} onChange={e => setForm({...form, title: e.target.value})} placeholder="e.g. Morning Shift Handover" /></div>
           <div className="form-group"><label className="form-label">Detailed Notes</label><textarea className="form-input" style={{ minHeight: 120, resize: 'vertical' }} value={form.description} onChange={e => setForm({...form, description: e.target.value})} placeholder="Describe patient condition, care given, etc." /></div>
+          <div className="form-group"><label className="form-label">Logged By</label><input className="form-input" value={form.nurse_name} onChange={e => setForm({...form, nurse_name: e.target.value})} placeholder="Enter your name" /></div>
         </div>
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
