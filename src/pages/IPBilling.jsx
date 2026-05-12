@@ -53,6 +53,7 @@ export default function IPBilling() {
         name: b.patient_name || 'Unknown Patient',
         ward: `${b.ward} - Bed ${b.id}`,
         doctor: b.doctor_name || 'General Physician',
+        doctor_id: b.doctor_id,
         admitted_at: b.admitted_at || new Date().toISOString(),
         payment_type: b.patient_id?.includes('INS') ? 'TPA' : 'Cash'
       })))
@@ -69,7 +70,7 @@ export default function IPBilling() {
     if (!patientId) return
     setDataLoading(true)
     try {
-      const notes = await api.getClinicalNotes(patientId)
+      const notes = await api.getNotes({ patient_id: patientId })
       
       const parsedCharges = notes.filter(n => n.note_type === 'IP_CHARGE').map(n => ({ ...JSON.parse(n.content), id: n.id, date: n.created_at }))
       const parsedAdvances = notes.filter(n => n.note_type === 'IP_ADVANCE').map(n => ({ ...JSON.parse(n.content), id: n.id, date: n.created_at }))
@@ -105,7 +106,7 @@ export default function IPBilling() {
   const lowBalanceAlert = totalGross > 0 && (totalAdvances + insuranceApproved) < (totalGross * 0.2) // Warn if less than 20% covered
 
   const handleAddRecord = async (type, data) => {
-    await api.createClinicalNote({ patient_id: selectedPatient.id, doctor_id: 'SYSTEM', note_type: type, content: JSON.stringify(data) })
+    await api.createNote({ patient_id: selectedPatient.id, doctor_id: selectedPatient.doctor_id, note_type: type, content: JSON.stringify(data) })
     fetchBillingData(selectedPatient.id)
     setShowChargeModal(false); setShowAdvanceModal(false); setShowInsuranceModal(false); setShowPackageModal(false)
   }
