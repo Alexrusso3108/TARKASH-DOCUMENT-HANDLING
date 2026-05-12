@@ -704,8 +704,8 @@ async function buildSmartAutoAnnotations(pdfPage, patientData) {
   if (!usedKeys.has('patient_name') && values.patient_name) {
     // Place a "patient sticker" in the top-right corner where forms usually have white space.
     // The previous gap detection logic failed because logos/images don't have text layers.
-    const insertY = 0.04;
-    const startX = 0.58;
+    const insertY = 0.025;
+    const startX = 0.56;
 
     const lines = [
       [
@@ -732,10 +732,10 @@ async function buildSmartAutoAnnotations(pdfPage, patientData) {
           type:        'text',
           content:     text,
           xFrac:       startX + colIdx * 0.22,
-          yFrac:       insertY + lineIdx * 0.035,
+          yFrac:       insertY + lineIdx * 0.028,
           x: 0, y: 0,
           color:       '#1e3a5f',
-          lineWidth:   2.2,
+          lineWidth:   2.0,
           page:        1,
           _autofilled: true,
           _baselineY:  false,
