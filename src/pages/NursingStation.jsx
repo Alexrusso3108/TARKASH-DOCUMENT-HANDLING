@@ -28,7 +28,8 @@ export default function NursingStation() {
         name: b.patient_name || 'Unknown',
         ward: `${b.ward} - Bed ${b.id}`,
         status: 'Admitted',
-        doctor_id: b.doctor_name
+        doctor_id: b.doctor_id,
+        doctor_name: b.doctor_name
       })))
     }).catch(e => console.error("Failed to load patients for nursing station", e))
   }, [])
@@ -59,7 +60,7 @@ export default function NursingStation() {
     try {
       await api.createNote({
         patient_id: selectedPatient.id,
-        doctor_id: 'NURSE_01', // Logged in user mock
+        doctor_id: selectedPatient.doctor_id, // Assigned doctor
         note_type: type,
         content: JSON.stringify(data)
       })
@@ -81,7 +82,7 @@ export default function NursingStation() {
       // For simplicity, we just add a new note representing the updated status.
       await api.createNote({
         patient_id: selectedPatient.id,
-        doctor_id: 'NURSE_01',
+        doctor_id: selectedPatient.doctor_id,
         note_type: 'EMAR',
         content: JSON.stringify(updatedData)
       })
@@ -142,7 +143,7 @@ export default function NursingStation() {
                   <div style={{ fontSize: '0.85rem', color: 'var(--gray-300)', display: 'flex', gap: '1.5rem' }}>
                     <span>UHID: <strong>{selectedPatient.id}</strong></span>
                     <span>Ward: <strong>{selectedPatient.ward}</strong></span>
-                    <span>Primary Dr: <strong>{selectedPatient.doctor_id || 'General'}</strong></span>
+                    <span>Primary Dr: <strong>{selectedPatient.doctor_name || 'General'}</strong></span>
                   </div>
                 </div>
               </div>
