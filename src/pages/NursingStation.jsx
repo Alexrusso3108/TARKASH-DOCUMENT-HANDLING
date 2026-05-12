@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Activity, ClipboardList, PenTool, CheckCircle, Search, Droplet, HeartPulse, Plus, X, Loader } from 'lucide-react'
 import { api } from '../api'
+import { useAuth } from '../context/AuthContext'
 
 export default function NursingStation() {
+  const { user } = useAuth()
   const [patients, setPatients] = useState([])
   const [selectedPatient, setSelectedPatient] = useState(null)
   const [activeTab, setActiveTab] = useState('vitals')
@@ -58,11 +60,12 @@ export default function NursingStation() {
 
   const handleSaveData = async (type, data) => {
     try {
+      const finalData = { ...data, nurse_name: user?.name || 'RN. Duty' }
       await api.createNote({
         patient_id: selectedPatient.id,
         doctor_id: selectedPatient.doctor_id, // Assigned doctor
         note_type: type,
-        content: JSON.stringify(data)
+        content: JSON.stringify(finalData)
       })
       fetchData(selectedPatient.id)
       setShowVitalsModal(false)
@@ -75,7 +78,7 @@ export default function NursingStation() {
 
   const markMedicationGiven = async (record) => {
     try {
-      const updatedData = { ...record, status: 'Given', last_given: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) }
+      const updatedData = { ...record, status: 'Given', last_given: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), nurse_name: user?.name || 'RN. Duty' }
       delete updatedData.id
       delete updatedData.date
       // To simulate update, we create a new note and it acts as the latest status, or we just add a new note. 
@@ -283,7 +286,7 @@ export default function NursingStation() {
 }
 
 function VitalsModal({ onClose, onSave }) {
-  const [form, setForm] = useState({ temp: '', bp: '', pulse: '', spo2: '', resp: '', nurse_name: '' })
+  const [form, setForm] = useState({ temp: '', bp: '', pulse: '', spo2: '', resp: '' })
   return (
     <div className="modal-overlay">
       <div className="modal">
@@ -295,7 +298,6 @@ function VitalsModal({ onClose, onSave }) {
             <div className="form-group"><label className="form-label">Pulse (bpm)</label><input type="number" className="form-input" value={form.pulse} onChange={e => setForm({...form, pulse: e.target.value})} placeholder="72" /></div>
             <div className="form-group"><label className="form-label">SpO2 (%)</label><input type="number" className="form-input" value={form.spo2} onChange={e => setForm({...form, spo2: e.target.value})} placeholder="98" /></div>
             <div className="form-group"><label className="form-label">Respiration (bpm)</label><input type="number" className="form-input" value={form.resp} onChange={e => setForm({...form, resp: e.target.value})} placeholder="16" /></div>
-            <div className="form-group"><label className="form-label">Logged By</label><input className="form-input" value={form.nurse_name} onChange={e => setForm({...form, nurse_name: e.target.value})} placeholder="Enter your name" /></div>
           </div>
         </div>
         <div className="modal-footer">
@@ -341,7 +343,7 @@ function EmarModal({ onClose, onSave }) {
 }
 
 function NoteModal({ onClose, onSave }) {
-  const [form, setForm] = useState({ title: '', description: '', nurse_name: '' })
+  const [form, setForm] = useState({ title: '', description: '' })
   return (
     <div className="modal-overlay">
       <div className="modal">
@@ -349,7 +351,6 @@ function NoteModal({ onClose, onSave }) {
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div className="form-group"><label className="form-label">Title / Context</label><input className="form-input" value={form.title} onChange={e => setForm({...form, title: e.target.value})} placeholder="e.g. Morning Shift Handover" /></div>
           <div className="form-group"><label className="form-label">Detailed Notes</label><textarea className="form-input" style={{ minHeight: 120, resize: 'vertical' }} value={form.description} onChange={e => setForm({...form, description: e.target.value})} placeholder="Describe patient condition, care given, etc." /></div>
-          <div className="form-group"><label className="form-label">Logged By</label><input className="form-input" value={form.nurse_name} onChange={e => setForm({...form, nurse_name: e.target.value})} placeholder="Enter your name" /></div>
         </div>
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
