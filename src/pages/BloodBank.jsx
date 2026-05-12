@@ -44,7 +44,7 @@ export default function BloodBank() {
       let allReqs = []
       for (const bed of occupied) {
         if (bed.patient_id) {
-          const notes = await api.getClinicalNotes(bed.patient_id)
+          const notes = await api.getNotes({ patient_id: bed.patient_id })
           const bloodReqs = notes
             .filter(n => n.note_type === 'BLOOD_REQUEST')
             .map(n => ({
@@ -81,9 +81,10 @@ export default function BloodBank() {
 
   const handleNewRequest = async (form) => {
     try {
-      await api.createClinicalNote({
+      const patientBed = admittedPatients.find(p => p.patient_id === form.patient_id)
+      await api.createNote({
         patient_id: form.patient_id,
-        doctor_id: 'SYSTEM',
+        doctor_id: patientBed?.doctor_id,
         note_type: 'BLOOD_REQUEST',
         content: JSON.stringify({
           group: form.group, units: form.units, type: form.type, priority: form.priority, status: 'Pending', date: new Date().toISOString()
@@ -111,9 +112,10 @@ export default function BloodBank() {
       
       // We create a new note to reflect the updated state for simplicity, or ideally update the existing one if supported.
       // Assuming create acts as an append log.
-      await api.createClinicalNote({
+      const patientBed = admittedPatients.find(p => p.patient_id === req.patient_id)
+      await api.createNote({
         patient_id: req.patient_id,
-        doctor_id: 'SYSTEM',
+        doctor_id: patientBed?.doctor_id,
         note_type: 'BLOOD_REQUEST',
         content: JSON.stringify(updatedData)
       })
