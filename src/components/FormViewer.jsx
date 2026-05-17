@@ -844,6 +844,20 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
   const [autoFilled, setAutoFilled] = useState(false)
   const autoFilledRef = useRef(false)
 
+  // Auto-enter fullscreen when viewer opens
+  useEffect(() => {
+    const el = fullScreenRef.current
+    if (!el) return
+    if (!document.fullscreenElement) {
+      el.requestFullscreen().catch(() => {}) // silently ignore if blocked
+    }
+    return () => {
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {})
+      }
+    }
+  }, [])
+
   // Consider a form "blank" if it has no annotations OR only old auto-filled ones
   const isBlankForm = annotations.length === 0 || annotations.every(a => a._autofilled)
 
@@ -1241,42 +1255,72 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
       {/* ── Patient details banner ── */}
       {patientData && (
         <div style={{
-          background: 'linear-gradient(90deg, rgba(99,102,241,0.18), rgba(13,148,136,0.14))',
-          borderBottom: '1px solid rgba(99,102,241,0.22)',
-          padding: '0.5rem 1.25rem',
-          display: 'flex', alignItems: 'center', gap: '1rem',
-          flexShrink: 0, flexWrap: 'wrap',
+          background: 'linear-gradient(90deg, #1a2744 0%, #0f2233 100%)',
+          borderBottom: '1px solid rgba(99,102,241,0.25)',
+          padding: '0 1rem',
+          display: 'flex', alignItems: 'stretch',
+          flexShrink: 0, minHeight: 52, overflow: 'hidden',
         }}>
-          {/* Avatar */}
+          {/* Avatar block */}
           <div style={{
-            width: 38, height: 38, borderRadius: '50%',
-            background: 'linear-gradient(135deg, #6366f1, #0d9488)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontWeight: 800, color: '#fff', fontSize: '0.875rem', flexShrink: 0,
+            display: 'flex', alignItems: 'center', gap: '0.625rem',
+            paddingRight: '1rem', marginRight: '0.5rem',
+            borderRight: '1px solid rgba(255,255,255,0.1)',
+            flexShrink: 0,
           }}>
-            {(patientData.name || '?').split(' ').map(n => n[0]).join('').slice(0, 2)}
+            <div style={{
+              width: 34, height: 34, borderRadius: '50%',
+              background: 'linear-gradient(135deg, #6366f1, #0d9488)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontWeight: 800, color: '#fff', fontSize: '0.8rem', flexShrink: 0,
+            }}>
+              {(patientData.name || '?').split(' ').map(n => n[0]).join('').slice(0, 2)}
+            </div>
           </div>
 
-          {/* Fields */}
-          {[
-            { label: 'Patient',    value: patientData.name },
-            { label: 'Age / Sex',  value: [patientData.age ? `${patientData.age} Y` : null, patientData.gender].filter(Boolean).join(' / ') },
-            { label: 'UHID',       value: patientData.id },
-            { label: 'Doctor',     value: patientData.doctor_name ? `Dr. ${patientData.doctor_name}` : null },
-            { label: 'Dept',       value: patientData.department },
-            { label: 'Phone',      value: patientData.phone },
-            { label: 'Admitted',   value: patientData.admitted_at ? new Date(patientData.admitted_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null },
-          ].filter(f => f.value).map((f, i) => (
-            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', minWidth: 0 }}>
-              <span style={{ fontSize: '0.58rem', fontWeight: 700, color: 'rgba(165,180,252,0.7)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>{f.label}</span>
-              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{f.value}</span>
-            </div>
-          ))}
+          {/* Fields row — each field separated by a faint vertical divider */}
+          <div style={{ display: 'flex', alignItems: 'stretch', flex: 1, overflow: 'hidden' }}>
+            {[
+              { label: 'PATIENT',  value: patientData.name },
+              { label: 'AGE / SEX', value: [patientData.age ? `${patientData.age} Y` : null, patientData.gender ? (patientData.gender === 'Male' ? 'Male' : 'Female') : null].filter(Boolean).join(' / ') },
+              { label: 'UHID',     value: patientData.id },
+              { label: 'DOCTOR',   value: patientData.doctor_name ? `Dr. ${patientData.doctor_name}` : null },
+              { label: 'DEPT',     value: patientData.department },
+              { label: 'PHONE',    value: patientData.phone },
+              { label: 'ADMITTED', value: patientData.admitted_at ? new Date(patientData.admitted_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null },
+            ].filter(f => f.value).map((f, i, arr) => (
+              <div key={i} style={{
+                display: 'flex', flexDirection: 'column', justifyContent: 'center',
+                padding: '0 0.875rem',
+                borderRight: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.08)' : 'none',
+                flexShrink: i < 2 ? 0 : 1, minWidth: 0,
+              }}>
+                <span style={{
+                  fontSize: '0.5rem', fontWeight: 800,
+                  color: 'rgba(148,163,184,0.65)',
+                  textTransform: 'uppercase', letterSpacing: '0.08em',
+                  whiteSpace: 'nowrap', lineHeight: 1, marginBottom: '0.25rem',
+                }}>{f.label}</span>
+                <span style={{
+                  fontSize: '0.775rem', fontWeight: 700, color: '#e2e8f0',
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  lineHeight: 1.2,
+                }}>{f.value}</span>
+              </div>
+            ))}
+          </div>
 
           {/* Toggle sidebar button */}
           <button
             onClick={() => setShowInfoPanel(v => !v)}
-            style={{ marginLeft: 'auto', background: showInfoPanel ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.08)', border: 'none', borderRadius: 6, padding: '0.3rem 0.7rem', color: '#a5b4fc', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}
+            style={{
+              flexShrink: 0, alignSelf: 'center', marginLeft: '0.75rem',
+              background: showInfoPanel ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.08)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: 6, padding: '0.3rem 0.7rem',
+              color: '#a5b4fc', cursor: 'pointer',
+              fontSize: '0.7rem', fontWeight: 700, whiteSpace: 'nowrap',
+            }}
           >
             {showInfoPanel ? '✕ Hide Details' : '📋 Full Details'}
           </button>
