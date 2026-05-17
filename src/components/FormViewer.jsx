@@ -844,20 +844,6 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
   const [autoFilled, setAutoFilled] = useState(false)
   const autoFilledRef = useRef(false)
 
-  // Auto-enter fullscreen when viewer opens
-  useEffect(() => {
-    const el = fullScreenRef.current
-    if (!el) return
-    if (!document.fullscreenElement) {
-      el.requestFullscreen().catch(() => {}) // silently ignore if blocked
-    }
-    return () => {
-      if (document.fullscreenElement) {
-        document.exitFullscreen().catch(() => {})
-      }
-    }
-  }, [])
-
   // Consider a form "blank" if it has no annotations OR only old auto-filled ones
   const isBlankForm = annotations.length === 0 || annotations.every(a => a._autofilled)
 

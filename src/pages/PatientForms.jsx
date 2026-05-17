@@ -145,6 +145,22 @@ export default function PatientForms() {
     } catch (e) { console.error(e) } finally { setLoadingForms(false) }
   }, [])
 
+  // Open a form — triggers fullscreen from the user gesture (click)
+  const openFormFullscreen = useCallback((form) => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {})
+    }
+    setOpenForm(form)
+  }, [])
+
+  // Close the form viewer and exit fullscreen
+  const closeForm = useCallback(() => {
+    setOpenForm(null)
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {})
+    }
+  }, [])
+
   // When annotations are saved, update the local card status
   const handleAnnotationsSaved = useCallback((updatedAnnotations, newStatus) => {
     if (!openForm) return
@@ -172,7 +188,7 @@ export default function PatientForms() {
         <FormViewer
           formInstance={{ ...openForm, patient_name: selectedPatient?.name }}
           patientData={selectedPatient}
-          onClose={() => setOpenForm(null)}
+          onClose={closeForm}
           onAnnotationsSaved={handleAnnotationsSaved}
         />
       )}
@@ -272,7 +288,7 @@ export default function PatientForms() {
                       key={form.id}
                       className="card card-hoverable"
                       style={{ cursor: 'pointer', overflow: 'hidden' }}
-                      onClick={() => setOpenForm(form)}
+                      onClick={() => openFormFullscreen(form)}
                     >
                       {/* Status strip */}
                       <div style={{ height: 4, background: form.status === 'completed' ? '#10b981' : form.status === 'in-progress' ? '#f59e0b' : 'var(--gray-200)' }} />
