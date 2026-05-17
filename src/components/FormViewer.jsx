@@ -416,8 +416,8 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
         </div>
       </div>
 
-      {/* Scrollable canvas area — 1fr grid row gives it all remaining height */}
-      <div style={{ overflow: 'auto', background: '#1e293b', display: 'flex', justifyContent: 'center', alignItems: 'flex-start' }}>
+      {/* Canvas area — centers PDF both ways */}
+      <div style={{ overflow: 'auto', background: '#1e293b', display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1 }}>
         <div style={{ position: 'relative', display: 'inline-block', lineHeight: 0 }}>
           {/* PDF layer */}
           <canvas id={`pdf-canvas-${pdfPage}`} style={{ display: 'block' }} />
@@ -834,7 +834,7 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
   const [annotations, setAnnotations] = useState([])
   const [viewportSize, setViewportSize] = useState(null)
   const [showInfoPanel, setShowInfoPanel] = useState(!!patientData && !allForms.length)
-  const [showFormsQueue, setShowFormsQueue] = useState(allForms.length > 1)
+  const [showFormsQueue, setShowFormsQueue] = useState(false) // hidden by default, PDF fills screen
   const [pendingStamp, setPendingStamp] = useState(null)
   const inkCanvasRef = useRef(null)
   const fullScreenRef = useRef(null)
@@ -905,13 +905,17 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
     pdfDoc.getPage(page).then(pdfPage => {
       if (cancelled) return
 
-      // On first page, compute a fit-to-width scale
+      // Fit PDF to fill the full container (width AND height) — whichever is smaller wins
+      // so the whole page is visible without scrolling.
       let renderScale = scale
       if (page === 1 && containerRef.current) {
-        const containerWidth = containerRef.current.clientWidth
+        const containerWidth  = containerRef.current.clientWidth
+        const containerHeight = containerRef.current.clientHeight || window.innerHeight
         const naturalViewport = pdfPage.getViewport({ scale: 1 })
-        const computed = Math.max(0.5, Math.min(3, containerWidth / naturalViewport.width))
-        // Only auto-fit on very first render (when scale is still default 1.0)
+        const scaleByWidth  = containerWidth  / naturalViewport.width
+        const scaleByHeight = containerHeight / naturalViewport.height
+        // Use the smaller scale so the whole page fits on screen (contain mode)
+        const computed = Math.max(0.4, Math.min(3, Math.min(scaleByWidth, scaleByHeight) * 0.97))
         if (scale === 1.0) {
           renderScale = computed
           setFitScale(computed)
