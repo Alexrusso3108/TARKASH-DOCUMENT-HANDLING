@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Search, Plus, FileText, X, Pen, CheckCircle, Loader, Users
 } from 'lucide-react'
@@ -128,6 +128,7 @@ export default function PatientForms() {
   const [search, setSearch] = useState('')
   const [showAssign, setShowAssign] = useState(false)
   const [openForm, setOpenForm] = useState(null)
+  const fsContainerRef = useRef(null) // always-in-DOM fullscreen container
 
   useEffect(() => {
     Promise.all([api.getPatients(), api.getFormTemplates()])
@@ -145,10 +146,12 @@ export default function PatientForms() {
     } catch (e) { console.error(e) } finally { setLoadingForms(false) }
   }, [])
 
-  // Open a form — triggers fullscreen from the user gesture (click)
+  // Open a form: call requestFullscreen on our persistent container (user gesture context),
+  // then set the form state — React will render FormViewer inside that now-fullscreen div.
   const openFormFullscreen = useCallback((form) => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => {})
+    const el = fsContainerRef.current
+    if (el && !document.fullscreenElement) {
+      el.requestFullscreen().catch(() => {})
     }
     setOpenForm(form)
   }, [])
@@ -182,17 +185,30 @@ export default function PatientForms() {
   }, new Map())
 
   return (
-    <div className="animate-fadeInUp">
-      {/* Full-screen form viewer — mounts over everything */}
-      {openForm && (
-        <FormViewer
-          formInstance={{ ...openForm, patient_name: selectedPatient?.name }}
-          patientData={selectedPatient}
-          onClose={closeForm}
-          onAnnotationsSaved={handleAnnotationsSaved}
-        />
-      )}
+    <>
+      {/* Always-in-DOM fullscreen container — FormViewer renders inside this */}
+      <div
+        ref={fsContainerRef}
+        style={{
+          position: openForm ? 'fixed' : 'absolute',
+          inset: 0,
+          zIndex: openForm ? 99999 : -1,
+          display: openForm ? 'flex' : 'none',
+          flexDirection: 'column',
+          background: '#0f172a',
+        }}
+      >
+        {openForm && (
+          <FormViewer
+            formInstance={{ ...openForm, patient_name: selectedPatient?.name }}
+            patientData={selectedPatient}
+            onClose={closeForm}
+            onAnnotationsSaved={handleAnnotationsSaved}
+          />
+        )}
+      </div>
 
+      <div className="animate-fadeInUp">
       <div className="page-header">
         <div>
           <h1 className="page-title">Patient Forms</h1>
@@ -332,5 +348,6 @@ export default function PatientForms() {
         />
       )}
     </div>
+    </>
   )
 }

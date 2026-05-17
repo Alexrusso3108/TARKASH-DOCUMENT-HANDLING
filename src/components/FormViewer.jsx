@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { createPortal } from 'react-dom'
 import {
   Pen, Eraser, Undo2, Trash2, Save, CheckCircle, Loader,
   ChevronLeft, ChevronRight, ZoomIn, ZoomOut, X, Lock, Maximize2, Type, Download, ClipboardList, Hand
@@ -1154,10 +1153,10 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
     patientData.phone,
   ].filter(Boolean).join('  ·  ') : null
 
-  return createPortal(
-    <div ref={fullScreenRef} style={{ position: 'fixed', inset: 0, background: '#0f172a', zIndex: 10000, display: 'flex', flexDirection: 'column' }}>
+  return (
+    <div ref={fullScreenRef} style={{ width: '100%', height: '100%', background: '#0f172a', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Top bar */}
-      <div style={{ display: 'flex', alignItems: 'center', padding: '0.75rem 1.25rem', background: '#1e293b', borderBottom: '1px solid rgba(255,255,255,0.08)', gap: '1rem', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', padding: '0.6rem 1rem', background: '#1e293b', borderBottom: '1px solid rgba(255,255,255,0.08)', gap: '0.75rem', flexShrink: 0, flexWrap: 'wrap' }}>
         <button onClick={onClose} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 8, padding: '0.4rem 0.8rem', color: 'rgba(255,255,255,0.85)', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 600 }}>
           <ChevronLeft size={16} /> Back
         </button>
@@ -1176,14 +1175,28 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
             <ClipboardList size={15} /> All Forms ({allForms.length})
           </button>
         )}
-        <div style={{ flex: 1 }}>
-          <div style={{ color: '#fff', fontWeight: 700, fontSize: '0.9375rem' }}>{formInstance.template_name}</div>
+
+        {/* Form title */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ color: '#fff', fontWeight: 700, fontSize: '0.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{formInstance.template_name}</div>
           {(formInstance.patient_name || formInstance.patient_id) && (
-            <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.75rem' }}>
-              Patient: {formInstance.patient_name || formInstance.patient_id}
+            <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.7rem' }}>
+              {formInstance.patient_name || formInstance.patient_id}
             </div>
           )}
         </div>
+
+        {/* Toggle patient info sidebar */}
+        {patientData && (
+          <button
+            onClick={() => setShowInfoPanel(v => !v)}
+            title="Patient Details"
+            style={{ background: showInfoPanel ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.08)', border: 'none', borderRadius: 7, padding: '0 0.6rem', height: 32, cursor: 'pointer', color: '#a5b4fc', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.75rem', fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}
+          >
+            📋 {patientData.name?.split(' ')[0]}
+          </button>
+        )}
+
         {/* Page navigation */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
@@ -1237,81 +1250,6 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
           {downloading ? ' Generating...' : ' Download PDF'}
         </button>
       </div>
-
-      {/* ── Patient details banner ── */}
-      {patientData && (
-        <div style={{
-          background: 'linear-gradient(90deg, #1a2744 0%, #0f2233 100%)',
-          borderBottom: '1px solid rgba(99,102,241,0.25)',
-          padding: '0 1rem',
-          display: 'flex', alignItems: 'stretch',
-          flexShrink: 0, minHeight: 52, overflow: 'hidden',
-        }}>
-          {/* Avatar block */}
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '0.625rem',
-            paddingRight: '1rem', marginRight: '0.5rem',
-            borderRight: '1px solid rgba(255,255,255,0.1)',
-            flexShrink: 0,
-          }}>
-            <div style={{
-              width: 34, height: 34, borderRadius: '50%',
-              background: 'linear-gradient(135deg, #6366f1, #0d9488)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontWeight: 800, color: '#fff', fontSize: '0.8rem', flexShrink: 0,
-            }}>
-              {(patientData.name || '?').split(' ').map(n => n[0]).join('').slice(0, 2)}
-            </div>
-          </div>
-
-          {/* Fields row — each field separated by a faint vertical divider */}
-          <div style={{ display: 'flex', alignItems: 'stretch', flex: 1, overflow: 'hidden' }}>
-            {[
-              { label: 'PATIENT',  value: patientData.name },
-              { label: 'AGE / SEX', value: [patientData.age ? `${patientData.age} Y` : null, patientData.gender ? (patientData.gender === 'Male' ? 'Male' : 'Female') : null].filter(Boolean).join(' / ') },
-              { label: 'UHID',     value: patientData.id },
-              { label: 'DOCTOR',   value: patientData.doctor_name ? `Dr. ${patientData.doctor_name}` : null },
-              { label: 'DEPT',     value: patientData.department },
-              { label: 'PHONE',    value: patientData.phone },
-              { label: 'ADMITTED', value: patientData.admitted_at ? new Date(patientData.admitted_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null },
-            ].filter(f => f.value).map((f, i, arr) => (
-              <div key={i} style={{
-                display: 'flex', flexDirection: 'column', justifyContent: 'center',
-                padding: '0 0.875rem',
-                borderRight: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.08)' : 'none',
-                flexShrink: i < 2 ? 0 : 1, minWidth: 0,
-              }}>
-                <span style={{
-                  fontSize: '0.5rem', fontWeight: 800,
-                  color: 'rgba(148,163,184,0.65)',
-                  textTransform: 'uppercase', letterSpacing: '0.08em',
-                  whiteSpace: 'nowrap', lineHeight: 1, marginBottom: '0.25rem',
-                }}>{f.label}</span>
-                <span style={{
-                  fontSize: '0.775rem', fontWeight: 700, color: '#e2e8f0',
-                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                  lineHeight: 1.2,
-                }}>{f.value}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Toggle sidebar button */}
-          <button
-            onClick={() => setShowInfoPanel(v => !v)}
-            style={{
-              flexShrink: 0, alignSelf: 'center', marginLeft: '0.75rem',
-              background: showInfoPanel ? 'rgba(99,102,241,0.35)' : 'rgba(255,255,255,0.08)',
-              border: '1px solid rgba(255,255,255,0.12)',
-              borderRadius: 6, padding: '0.3rem 0.7rem',
-              color: '#a5b4fc', cursor: 'pointer',
-              fontSize: '0.7rem', fontWeight: 700, whiteSpace: 'nowrap',
-            }}
-          >
-            {showInfoPanel ? '✕ Hide Details' : '📋 Full Details'}
-          </button>
-        </div>
-      )}
 
       {/* Main content area: PDF + optional sidebars */}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
@@ -1432,14 +1370,12 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
             patientData={patientData}
             onClose={() => setShowInfoPanel(false)}
             onStampField={(val) => {
-              // Switch to type tool and pre-set the text — user then clicks on PDF to place
               setPendingStamp(val)
               alert(`Now click on the PDF where you want to place: "${val}"`)
             }}
           />
         )}
       </div>
-    </div>,
-    document.body
+    </div>
   )
 }
