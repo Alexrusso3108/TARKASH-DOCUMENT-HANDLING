@@ -416,9 +416,9 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
         </div>
       </div>
 
-      {/* Canvas area — centers PDF both ways */}
-      <div style={{ overflow: 'auto', background: '#1e293b', display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1 }}>
-        <div style={{ position: 'relative', display: 'inline-block', lineHeight: 0 }}>
+      {/* Canvas area — scrollable, PDF centered via margin:auto (alignItems:center breaks scroll) */}
+      <div style={{ overflow: 'auto', background: '#1e293b', display: 'flex', flex: 1, alignItems: 'flex-start' }}>
+        <div style={{ position: 'relative', display: 'inline-block', lineHeight: 0, margin: 'auto' }}>
           {/* PDF layer */}
           <canvas id={`pdf-canvas-${pdfPage}`} style={{ display: 'block' }} />
           {/* Ink layer — exactly overlays the PDF canvas, no pointer events when type tool active */}
