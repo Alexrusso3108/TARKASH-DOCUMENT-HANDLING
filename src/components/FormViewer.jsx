@@ -846,15 +846,16 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
   // Consider a form "blank" if it has no annotations OR only old auto-filled ones
   const isBlankForm = annotations.length === 0 || annotations.every(a => a._autofilled)
 
-  // Sync state whenever formInstance.id changes
+  // Sync state whenever formInstance.id changes.
+  // NOTE: do NOT reset pdfDoc here — if two forms share the same PDF file,
+  // pdfUrl won't change so the PDF loader won't re-fire, leaving pdfDoc=null forever.
+  // Resetting page/scale is enough to re-trigger the render effect.
   useEffect(() => {
     if (!formInstance) return
     setAnnotations(Array.isArray(formInstance.annotations) ? formInstance.annotations : [])
     setPage(1)
-    setPdfDoc(null)
-    setLoadingPdf(true)
     setViewportSize(null)
-    setScale(1.0)           // reset so auto-fit fires on next render
+    setScale(1.0)
     autoFilledRef.current = false
     setAutoFilled(false)
   }, [formInstance.id])
