@@ -838,6 +838,7 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
   const [pendingStamp, setPendingStamp] = useState(null)
   const inkCanvasRef = useRef(null)
   const fullScreenRef = useRef(null)
+  const scaledForDocRef = useRef(null) // tracks which pdfDoc was used to compute current scale
   const [transitioning, setTransitioning] = useState(false)
   const swipeRef = useRef({ x: 0, y: 0, time: 0 })
   const [autoFilled, setAutoFilled] = useState(false)
@@ -878,6 +879,7 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
   useEffect(() => {
     let cancelled = false
     setLoadingPdf(true)
+    setScale(1.0)         // force scale recomputation when a new PDF file loads
     setPdfError(null)
     import('pdfjs-dist').then(async (pdfjsLib) => {
       if (cancelled) return
@@ -917,9 +919,10 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
         const availH = window.innerHeight - 100   // subtract toolbar chrome
         const scaleByWidth  = availW / naturalViewport.width
         const scaleByHeight = availH / naturalViewport.height
-        // fit-to-contain: use whichever dimension is the tighter constraint
         const computed = Math.max(0.4, Math.min(3, Math.min(scaleByWidth, scaleByHeight) * 0.97))
-        if (scale === 1.0) {
+        // Recompute if: first load (scale===1.0) OR pdfDoc changed (new PDF with different dims)
+        if (scale === 1.0 || scaledForDocRef.current !== pdfDoc) {
+          scaledForDocRef.current = pdfDoc
           renderScale = computed
           setFitScale(computed)
           setScale(computed)
@@ -1161,7 +1164,7 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
   ].filter(Boolean).join('  ·  ') : null
 
   return (
-    <div ref={fullScreenRef} style={{ width: '100%', height: '100%', background: '#0f172a', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div ref={fullScreenRef} style={{ position: 'fixed', inset: 0, background: '#0f172a', zIndex: 99999, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Top bar */}
       <div style={{ display: 'flex', alignItems: 'center', padding: '0.6rem 1rem', background: '#1e293b', borderBottom: '1px solid rgba(255,255,255,0.08)', gap: '0.75rem', flexShrink: 0, flexWrap: 'wrap' }}>
         <button onClick={onClose} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 8, padding: '0.4rem 0.8rem', color: 'rgba(255,255,255,0.85)', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 600 }}>
