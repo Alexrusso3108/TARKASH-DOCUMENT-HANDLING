@@ -854,6 +854,7 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
     setPdfDoc(null)
     setLoadingPdf(true)
     setViewportSize(null)
+    setScale(1.0)           // reset so auto-fit fires on next render
     autoFilledRef.current = false
     setAutoFilled(false)
   }, [formInstance.id])
@@ -905,16 +906,17 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
     pdfDoc.getPage(page).then(pdfPage => {
       if (cancelled) return
 
-      // Fit PDF to fill the full container (width AND height) — whichever is smaller wins
-      // so the whole page is visible without scrolling.
+      // Use window dimensions for reliable measurement (clientWidth/Height can be 0
+      // in flex containers at render time). Subtract fixed toolbar heights:
+      //   top bar ~48px + annotation toolbar ~52px = ~100px total UI chrome.
       let renderScale = scale
-      if (page === 1 && containerRef.current) {
-        const containerWidth  = containerRef.current.clientWidth
-        const containerHeight = containerRef.current.clientHeight || window.innerHeight
+      if (page === 1) {
         const naturalViewport = pdfPage.getViewport({ scale: 1 })
-        const scaleByWidth  = containerWidth  / naturalViewport.width
-        const scaleByHeight = containerHeight / naturalViewport.height
-        // Use the smaller scale so the whole page fits on screen (contain mode)
+        const availW = window.innerWidth
+        const availH = window.innerHeight - 100   // subtract toolbar chrome
+        const scaleByWidth  = availW / naturalViewport.width
+        const scaleByHeight = availH / naturalViewport.height
+        // fit-to-contain: use whichever dimension is the tighter constraint
         const computed = Math.max(0.4, Math.min(3, Math.min(scaleByWidth, scaleByHeight) * 0.97))
         if (scale === 1.0) {
           renderScale = computed
