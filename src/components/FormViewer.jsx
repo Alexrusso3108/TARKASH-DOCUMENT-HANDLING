@@ -850,6 +850,7 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
   const fullScreenRef = useRef(null)
   const scaledForDocRef = useRef(null) // tracks which pdfDoc was used to compute current scale
   const [transitioning, setTransitioning] = useState(false)
+  const [slideDir, setSlideDir] = useState(null) // 'left' | 'right' | null
   const swipeRef = useRef({ x: 0, y: 0, time: 0 })
   const [autoFilled, setAutoFilled] = useState(false)
   const autoFilledRef = useRef(false)
@@ -961,14 +962,28 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
       activeRenderTask.promise.then(async () => {
         if (cancelled) return
         setViewportSize({ width: viewport.width, height: viewport.height })
-        // Smart auto-fill: read PDF text layer to find EXACT label positions
+        // Smart auto-fill: read PDF text layer to find EXACT label positions.
+        // Skip if the form already has saved (non-autofill) annotations — switching
+        // between forms that share the same PDF must not overwrite existing data.
         if (page === 1 && patientData && !autoFilledRef.current) {
+          setAnnotations(current => {
+            const hasRealAnnotations = current.some(a => !a._autofilled)
+            if (hasRealAnnotations) {
+              // Form has user/saved annotations — do not overwrite with auto-fill
+              autoFilledRef.current = true
+              return current
+            }
+            return current // will be updated after async auto-fill below
+          })
+          // Only run auto-fill when there are no real saved annotations
           try {
             const autoAnns = await buildSmartAutoAnnotations(pdfPage, patientData)
             if (!cancelled && autoAnns.length > 0) {
-              autoFilledRef.current = true
-              setAutoFilled(true)
               setAnnotations(prev => {
+                // Double-check: if real annotations appeared in the meantime, abort
+                if (prev.some(a => !a._autofilled)) return prev
+                autoFilledRef.current = true
+                setAutoFilled(true)
                 const clearPrev = prev.filter(a => !(a._autofilled && a.page === 1))
                 return [...clearPrev, ...autoAnns]
               })
@@ -1016,31 +1031,42 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
   }
 
   // ── Navigation (Page & Form) ─────────────────────────────────────────────
+  // Animate slide-out in direction, change page/form, then slide-in from opposite side
+  const navigate = useCallback((dir, action) => {
+    if (transitioning) return
+    setSlideDir(dir)        // triggers slide-out CSS animation
+    setTransitioning(true)
+    setTimeout(() => {
+      action()              // change page or form
+      setSlideDir(dir === 'left' ? 'in-right' : 'in-left') // slide-in from opposite
+      setTimeout(() => {
+        setSlideDir(null)
+        setTransitioning(false)
+      }, 280)
+    }, 220)
+  }, [transitioning])
+
   const goToNext = useCallback(() => {
     if (page < totalPages) {
-      setTransitioning(true)
-      setTimeout(() => { setPage(p => p + 1); setTransitioning(false) }, 200)
+      navigate('left', () => setPage(p => p + 1))
     } else if (allForms.length > 1 && onSwitchForm) {
       const idx = allForms.findIndex(f => f.id === formInstance.id)
       if (idx !== -1 && idx < allForms.length - 1) {
-        setTransitioning(true)
-        setTimeout(() => { onSwitchForm(allForms[idx + 1]); setTransitioning(false) }, 200)
+        navigate('left', () => onSwitchForm(allForms[idx + 1]))
       }
     }
-  }, [page, totalPages, allForms, formInstance.id, onSwitchForm])
+  }, [page, totalPages, allForms, formInstance.id, onSwitchForm, navigate])
 
   const goToPrev = useCallback(() => {
     if (page > 1) {
-      setTransitioning(true)
-      setTimeout(() => { setPage(p => p - 1); setTransitioning(false) }, 200)
+      navigate('right', () => setPage(p => p - 1))
     } else if (allForms.length > 1 && onSwitchForm) {
       const idx = allForms.findIndex(f => f.id === formInstance.id)
       if (idx > 0) {
-        setTransitioning(true)
-        setTimeout(() => { onSwitchForm(allForms[idx - 1]); setTransitioning(false) }, 200)
+        navigate('right', () => onSwitchForm(allForms[idx - 1]))
       }
     }
-  }, [page, allForms, formInstance.id, onSwitchForm])
+  }, [page, allForms, formInstance.id, onSwitchForm, navigate])
 
   // ── Swipe Detection ────────────────────────────────────────────────────────
   const onPointerDown = (e) => {
@@ -1366,9 +1392,11 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
           style={{ 
             flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', 
             overflowX: 'hidden', overflowY: 'auto', background: '#1e293b', position: 'relative',
-            opacity: transitioning ? 0.3 : 1,
-            transform: transitioning ? 'scale(0.98)' : 'scale(1)',
-            transition: 'opacity 200ms, transform 200ms'
+            animation: slideDir === 'left'     ? 'slideOutLeft 220ms cubic-bezier(0.4,0,0.2,1) forwards'
+                     : slideDir === 'right'    ? 'slideOutRight 220ms cubic-bezier(0.4,0,0.2,1) forwards'
+                     : slideDir === 'in-right' ? 'slideInRight 280ms cubic-bezier(0.4,0,0.2,1) forwards'
+                     : slideDir === 'in-left'  ? 'slideInLeft 280ms cubic-bezier(0.4,0,0.2,1) forwards'
+                     : 'none',
           }}
         >
           {loadingPdf ? (
