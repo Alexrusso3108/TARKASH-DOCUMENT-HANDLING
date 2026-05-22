@@ -516,6 +516,7 @@ function PatientPanel({ patient, onClose }) {
 
       {openForm && openForm.type !== 'discharge' && (
         <FormViewer
+          key={openForm.id}
           formInstance={{ ...openForm, patient_name: patient.name }}
           patientData={patient}
           onClose={() => setOpenForm(null)}

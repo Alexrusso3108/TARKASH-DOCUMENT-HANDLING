@@ -667,6 +667,7 @@ export default function IPD() {
       {/* Full-screen FormViewer — patient forms only */}
       {activeForm && activeForm.type !== 'discharge' && selected && (
         <FormViewer
+          key={activeForm.id}
           formInstance={{ ...activeForm, patient_name: selected.patient_name, type: activeForm.type || 'form' }}
           patientData={{
             ...(selectedPatient || {}),

@@ -200,6 +200,7 @@ export default function PatientForms() {
       >
         {openForm && (
           <FormViewer
+            key={openForm.id}
             formInstance={{ ...openForm, patient_name: selectedPatient?.name }}
             patientData={selectedPatient}
             onClose={closeForm}
