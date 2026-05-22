@@ -878,8 +878,10 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
   // ── Load PDF.js ────────────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false
+    let loadingTask = null   // PDF.js loading task (can be aborted)
+    let loadedDoc = null     // track the document so we can destroy it if cancelled
     setLoadingPdf(true)
-    setScale(1.0)         // force scale recomputation when a new PDF file loads
+    setScale(1.0)            // force scale recomputation when a new PDF file loads
     setPdfError(null)
     import('pdfjs-dist').then(async (pdfjsLib) => {
       if (cancelled) return
@@ -887,8 +889,10 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
         'pdfjs-dist/build/pdf.worker.mjs', import.meta.url
       ).toString()
       try {
-        const doc = await pdfjsLib.getDocument(pdfUrl).promise
-        if (cancelled) return
+        loadingTask = pdfjsLib.getDocument(pdfUrl)
+        const doc = await loadingTask.promise
+        loadedDoc = doc
+        if (cancelled) { doc.destroy(); return }  // destroy if no longer needed
         setPdfDoc(doc)
         setTotalPages(doc.numPages)
       } catch (e) {
@@ -897,13 +901,20 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
         if (!cancelled) setLoadingPdf(false)
       }
     })
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      // Abort the in-progress network/worker load so the PDF.js worker
+      // doesn't accumulate orphaned operations and corrupt later loads.
+      if (loadingTask) loadingTask.destroy().catch(() => {})
+      if (loadedDoc)   loadedDoc.destroy().catch(() => {})
+    }
   }, [pdfUrl])
 
   // ── Render current page ────────────────────────────────────────────────────
   useEffect(() => {
     if (!pdfDoc) return
     let cancelled = false
+    let activeRenderTask = null  // track so we can cancel it in cleanup
     setViewportSize(null) // hide ink canvas while PDF re-renders
 
     pdfDoc.getPage(page).then(pdfPage => {
@@ -938,8 +949,8 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
       pdfCanvas.width = viewport.width
       pdfCanvas.height = viewport.height
 
-      const renderTask = pdfPage.render({ canvasContext: pdfCanvas.getContext('2d'), viewport })
-      renderTask.promise.then(async () => {
+      activeRenderTask = pdfPage.render({ canvasContext: pdfCanvas.getContext('2d'), viewport })
+      activeRenderTask.promise.then(async () => {
         if (cancelled) return
         setViewportSize({ width: viewport.width, height: viewport.height })
         // Smart auto-fill: read PDF text layer to find EXACT label positions
@@ -955,9 +966,22 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
             console.warn('[AutoFill] Smart auto-fill failed:', err)
           }
         }
-      }).catch(() => { })
-    })
-    return () => { cancelled = true }
+        }).catch((err) => {
+          // RenderingCancelledException is expected on cleanup — ignore it silently.
+          // Any other error should log for debugging.
+          if (!cancelled && err?.name !== 'RenderingCancelledException') {
+            console.warn('[FormViewer] PDF render error:', err)
+          }
+        })
+      }).catch((err) => {
+        if (!cancelled) console.warn('[FormViewer] getPage error:', err)
+      })
+    return () => {
+      cancelled = true
+      // Cancel the in-progress render so the PDF.js worker doesn't stay busy
+      // with stale work after a page/form/scale switch.
+      if (activeRenderTask) activeRenderTask.cancel()
+    }
   }, [pdfDoc, page, scale])
 
   // ── Save handler ───────────────────────────────────────────────────────────
