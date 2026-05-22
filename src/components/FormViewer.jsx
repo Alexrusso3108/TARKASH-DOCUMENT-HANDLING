@@ -84,8 +84,15 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
         const px = stroke.xFrac != null ? stroke.xFrac * vw : stroke.x
         const py = stroke.yFrac != null ? stroke.yFrac * vh : stroke.y
         const lines = String(stroke.content || '').split('\n')
+        // For auto-filled text, cap width so text never bleeds past the right edge.
+        // Leave a small 6px margin from the canvas right border.
+        const maxW = stroke._autofilled ? Math.max(40, vw - px - 6) : undefined
         lines.forEach((line, i) => {
-          ctx.fillText(line, px, py + (i * fontSize * 1.25))
+          if (maxW != null) {
+            ctx.fillText(line, px, py + (i * fontSize * 1.25), maxW)
+          } else {
+            ctx.fillText(line, px, py + (i * fontSize * 1.25))
+          }
         })
         ctx.restore()
         continue
@@ -723,16 +730,20 @@ async function buildSmartAutoAnnotations(pdfPage, patientData) {
       ].filter(Boolean),
     ].filter(row => row.length > 0)
 
+    // Column gap: 0.185 keeps both columns safely within the page right edge.
+    // startX is 0.50 so the sticker starts at the midpoint of the page.
+    const colGap = 0.185
+    const adjStartX = 0.50
     lines.forEach((row, lineIdx) => {
       row.forEach((text, colIdx) => {
         annotations.push({
           type:        'text',
           content:     text,
-          xFrac:       startX + colIdx * 0.22,
+          xFrac:       adjStartX + colIdx * colGap,
           yFrac:       insertY + lineIdx * 0.033,
           x: 0, y: 0,
           color:       '#1e3a5f',
-          lineWidth:   1.6,
+          lineWidth:   1.5,
           page:        1,
           _autofilled: true,
           _baselineY:  false,
@@ -1102,8 +1113,14 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
             const py = stroke.yFrac != null ? stroke.yFrac * offCanvas.height : stroke.y * scaleRatio
             
             const lines = String(stroke.content || '').split('\n')
+            // Cap auto-fill text to page right edge (6px margin)
+            const dlMaxW = stroke._autofilled ? Math.max(40, offCanvas.width - px - 6) : undefined
             lines.forEach((line, i) => {
-              ctx.fillText(line, px, py + i * fontSize * 1.25)
+              if (dlMaxW != null) {
+                ctx.fillText(line, px, py + i * fontSize * 1.25, dlMaxW)
+              } else {
+                ctx.fillText(line, px, py + i * fontSize * 1.25)
+              }
             })
             ctx.restore()
           } else if (stroke.points && stroke.points.length > 1) {
