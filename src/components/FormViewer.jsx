@@ -732,7 +732,7 @@ async function buildSmartAutoAnnotations(pdfPage, patientData) {
           yFrac:       insertY + lineIdx * 0.033,
           x: 0, y: 0,
           color:       '#1e3a5f',
-          lineWidth:   2.0,
+          lineWidth:   1.6,
           page:        1,
           _autofilled: true,
           _baselineY:  false,
@@ -843,8 +843,6 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
   const [autoFilled, setAutoFilled] = useState(false)
   const autoFilledRef = useRef(false)
 
-  // Check if Page 1 already has autofilled annotations
-  const hasAutoFilled = annotations.some(a => a._autofilled && a.page === 1)
 
   // Sync state whenever formInstance.id changes.
   // NOTE: do NOT reset pdfDoc here — if two forms share the same PDF file,
@@ -953,7 +951,7 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
         if (cancelled) return
         setViewportSize({ width: viewport.width, height: viewport.height })
         // Smart auto-fill: read PDF text layer to find EXACT label positions
-        if (page === 1 && !hasAutoFilled && patientData && !autoFilledRef.current) {
+        if (page === 1 && patientData && !autoFilledRef.current) {
           try {
             const autoAnns = await buildSmartAutoAnnotations(pdfPage, patientData)
             if (!cancelled && autoAnns.length > 0) {
