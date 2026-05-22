@@ -100,7 +100,7 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
         ctx.globalCompositeOperation = 'source-over'
         ctx.strokeStyle = stroke.color || '#1a1a2e'
         ctx.lineWidth = stroke.width || 2.5
-        ctx.globalAlpha = stroke.opacity || 1
+        ctx.globalAlpha = 1  // always full opacity — older strokes saved with opacity<1 also render dark
       }
       ctx.lineCap = 'round'
       ctx.lineJoin = 'round'
@@ -177,11 +177,14 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
     lastPoint.current = { x: canvasX, y: canvasY }
     startPoint.current = { x: e.clientX, y: e.clientY, time: Date.now() }
     
-    // Stylus: use real pressure for width + opacity. Mouse: flat full-opacity stroke.
+    // Stylus: use real pressure for WIDTH only (not opacity).
+    // Opacity-based pressure is NOT used because the single-path redraw on save
+    // cannot reproduce the compounding-alpha effect of live segment-by-segment drawing,
+    // making saved strokes look faded. Width-only pressure gives consistent dark ink.
     const isStylus = e.pointerType === 'pen'
     const pressure = isStylus && e.pressure > 0 ? e.pressure : 1
     const width    = tool === 'eraser' ? lineWidth * 6 : lineWidth * (isStylus ? (0.5 + pressure * 1.5) : 1)
-    const opacity  = tool === 'eraser' ? 1 : (isStylus ? Math.max(0.4, pressure * 1.2) : 1)
+    const opacity  = 1  // always full opacity — matches how strokes look after redraw
     const newStroke = { tool, color, width, opacity, points: [{ x: canvasX, y: canvasY }] }
     currentStrokeRef.current = newStroke  // Set ref synchronously — available immediately in move events
     setCurrentStroke(newStroke)
@@ -201,11 +204,10 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
       x: (e.clientX - rect.left) * (viewportSize.width / rect.width),
       y: (e.clientY - rect.top) * (viewportSize.height / rect.height)
     }
-    // Stylus: pressure-sensitive width + opacity. Mouse: full-opacity fixed width.
+    // Stylus: pressure-sensitive WIDTH only. Mouse: fixed width. Both always full opacity.
     const isStylus = e.pointerType === 'pen'
     const pressure = isStylus && e.pressure > 0 ? e.pressure : 1
     const width    = tool === 'eraser' ? lineWidth * 6 : lineWidth * (isStylus ? (0.5 + pressure * 1.5) : 1)
-    const alpha    = isStylus ? Math.max(0.4, pressure * 1.2) : 1
     const ctx = ctxRef.current
     if (ctx && lastPoint.current) {
       ctx.save()
@@ -216,7 +218,7 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
         ctx.globalCompositeOperation = 'source-over'
         ctx.strokeStyle = color
         ctx.lineWidth = width
-        ctx.globalAlpha = alpha
+        ctx.globalAlpha = 1  // always full opacity — matches redraw behaviour
       }
       ctx.beginPath()
       const prev = lastPoint.current
