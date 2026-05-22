@@ -26,10 +26,13 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
   const [activeText, setActiveText] = useState(null) // {x, y, content}
   const textInputRef = useRef(null)
 
-  // When parent injects auto-fill annotations, merge them into strokes
+  // When parent injects auto-fill annotations, MERGE them (don't replace user strokes)
   useEffect(() => {
     if (externalAnnotations && externalAnnotations.length > 0) {
-      setStrokes(externalAnnotations)
+      setStrokes(prev => {
+        const userStrokes = prev.filter(s => !s._autofilled)
+        return [...userStrokes, ...externalAnnotations]
+      })
       setSaved(false)
     }
   }, [externalAnnotations])
@@ -84,9 +87,10 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
         const px = stroke.xFrac != null ? stroke.xFrac * vw : stroke.x
         const py = stroke.yFrac != null ? stroke.yFrac * vh : stroke.y
         const lines = String(stroke.content || '').split('\n')
-        // For auto-filled text, cap width so text never bleeds past the right edge.
-        // Leave a small 6px margin from the canvas right border.
-        const maxW = stroke._autofilled ? Math.max(40, vw - px - 6) : undefined
+        // For auto-filled text, cap width to the annotation's own right boundary
+        // (_maxXFrac) when set (sticker columns), otherwise fall back to canvas edge.
+        const rightBoundary = stroke._maxXFrac != null ? stroke._maxXFrac * vw : vw
+        const maxW = stroke._autofilled ? Math.max(20, rightBoundary - px - 4) : undefined
         lines.forEach((line, i) => {
           if (maxW != null) {
             ctx.fillText(line, px, py + (i * fontSize * 1.25), maxW)
@@ -601,7 +605,7 @@ async function extractTextItems(pdfPage) {
  * Smart auto-fill: reads the PDF text layer to find exact label positions,
  * then places patient values right after each label. Works on any form template.
  */
-async function buildSmartAutoAnnotations(pdfPage, patientData) {
+async function buildSmartAutoAnnotations(pdfPage, patientData, pageNum = 1) {
   if (!patientData || !pdfPage) return []
 
   const values = buildPatientValues(patientData)
@@ -690,6 +694,14 @@ async function buildSmartAutoAnnotations(pdfPage, patientData) {
     // Skip if placement would go off the right edge of the page
     if (xFrac >= 0.98) continue
 
+    // Calculate right boundary: distance from value X to end of row
+    // so the text doesn't overflow past the right side of that cell.
+    const nextItemX = row.items
+      .filter(i => i.x > labelItem.x + labelItem.width)
+      .sort((a, b) => a.x - b.x)[0]?.x
+    const cellRightX = nextItemX ?? pageW
+    const _maxXFrac = Math.min(0.99, cellRightX / pageW)
+
     annotations.push({
       type:        'text',
       content:     value,
@@ -698,10 +710,11 @@ async function buildSmartAutoAnnotations(pdfPage, patientData) {
       x: 0, y: 0,
       color:       '#1a1a2e',
       lineWidth:   2.5,
-      page:        1,
+      page:        pageNum,
       _autofilled: true,
-      _baselineY:  true,        // tells redrawAll to use textBaseline='alphabetic'
+      _baselineY:  true,
       _label:      matched.alias,
+      _maxXFrac,
     })
   }
 
@@ -730,10 +743,12 @@ async function buildSmartAutoAnnotations(pdfPage, patientData) {
       ].filter(Boolean),
     ].filter(row => row.length > 0)
 
-    // Column gap: 0.185 keeps both columns safely within the page right edge.
-    // startX is 0.50 so the sticker starts at the midpoint of the page.
+    // Two-column layout starting at page midpoint.
+    // _maxXFrac gives each column a hard right boundary so text never overflows.
     const colGap = 0.185
     const adjStartX = 0.50
+    // Col 0 ends just before col 1 starts; col 1 ends at 98% of page width.
+    const colMaxXFrac = [adjStartX + colGap - 0.008, 0.98]
     lines.forEach((row, lineIdx) => {
       row.forEach((text, colIdx) => {
         annotations.push({
@@ -744,10 +759,11 @@ async function buildSmartAutoAnnotations(pdfPage, patientData) {
           x: 0, y: 0,
           color:       '#1e3a5f',
           lineWidth:   1.5,
-          page:        1,
+          page:        pageNum,
           _autofilled: true,
           _baselineY:  false,
           _label:      'fallback',
+          _maxXFrac:   colMaxXFrac[colIdx] ?? 0.98,
           refScale:    1.0,
         })
       })
@@ -854,6 +870,7 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
   const swipeRef = useRef({ x: 0, y: 0, time: 0 })
   const [autoFilled, setAutoFilled] = useState(false)
   const autoFilledRef = useRef(false)
+  const autoFilledPagesRef = useRef(new Set()) // tracks which pages have had auto-fill applied
 
 
   // Sync state whenever formInstance.id changes.
@@ -867,6 +884,7 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
     setViewportSize(null)
     setScale(1.0)
     autoFilledRef.current = false
+    autoFilledPagesRef.current = new Set()
     setAutoFilled(false)
   }, [formInstance.id])
 
@@ -962,34 +980,29 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
       activeRenderTask.promise.then(async () => {
         if (cancelled) return
         setViewportSize({ width: viewport.width, height: viewport.height })
-        // Smart auto-fill: read PDF text layer to find EXACT label positions.
-        // Skip if the form already has saved (non-autofill) annotations — switching
-        // between forms that share the same PDF must not overwrite existing data.
-        if (page === 1 && patientData && !autoFilledRef.current) {
-          setAnnotations(current => {
-            const hasRealAnnotations = current.some(a => !a._autofilled)
-            if (hasRealAnnotations) {
-              // Form has user/saved annotations — do not overwrite with auto-fill
-              autoFilledRef.current = true
-              return current
-            }
-            return current // will be updated after async auto-fill below
-          })
-          // Only run auto-fill when there are no real saved annotations
+        // Smart auto-fill: run for EVERY page so patient details appear throughout the PDF.
+        // Skip pages that have already been filled, or that have real (user) annotations.
+        if (patientData && !autoFilledPagesRef.current.has(page)) {
+          // Check if this page already has real saved annotations
+          const hasRealAnnotationsOnPage = (current) =>
+            current.some(a => !a._autofilled && a.page === page)
           try {
-            const autoAnns = await buildSmartAutoAnnotations(pdfPage, patientData)
+            const autoAnns = await buildSmartAutoAnnotations(pdfPage, patientData, page)
             if (!cancelled && autoAnns.length > 0) {
               setAnnotations(prev => {
-                // Double-check: if real annotations appeared in the meantime, abort
-                if (prev.some(a => !a._autofilled)) return prev
+                if (hasRealAnnotationsOnPage(prev)) return prev // don't clobber real data
+                autoFilledPagesRef.current.add(page)
                 autoFilledRef.current = true
                 setAutoFilled(true)
-                const clearPrev = prev.filter(a => !(a._autofilled && a.page === 1))
+                const clearPrev = prev.filter(a => !(a._autofilled && a.page === page))
                 return [...clearPrev, ...autoAnns]
               })
+            } else {
+              // Even if no annotations were generated, mark page as processed
+              autoFilledPagesRef.current.add(page)
             }
           } catch (err) {
-            console.warn('[AutoFill] Smart auto-fill failed:', err)
+            console.warn('[AutoFill] Smart auto-fill failed for page', page, err)
           }
         }
         }).catch((err) => {
@@ -1139,8 +1152,11 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
             const py = stroke.yFrac != null ? stroke.yFrac * offCanvas.height : stroke.y * scaleRatio
             
             const lines = String(stroke.content || '').split('\n')
-            // Cap auto-fill text to page right edge (6px margin)
-            const dlMaxW = stroke._autofilled ? Math.max(40, offCanvas.width - px - 6) : undefined
+            // Use per-annotation right boundary (_maxXFrac) when available, else canvas edge
+            const dlBoundary = stroke._maxXFrac != null
+              ? stroke._maxXFrac * offCanvas.width
+              : offCanvas.width
+            const dlMaxW = stroke._autofilled ? Math.max(20, dlBoundary - px - 4) : undefined
             lines.forEach((line, i) => {
               if (dlMaxW != null) {
                 ctx.fillText(line, px, py + i * fontSize * 1.25, dlMaxW)
@@ -1420,7 +1436,7 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
                 scale={scale}
                 onSwipeLeft={goToNext}
                 onSwipeRight={goToPrev}
-                externalAnnotations={autoFilled && page === 1 ? annotations.filter(s => s.page === 1) : undefined}
+                externalAnnotations={autoFilled ? annotations.filter(s => s.page === page && s._autofilled) : undefined}
               />
               
               {/* Pagination UI Arrows (Clickable on Laptop) */}
