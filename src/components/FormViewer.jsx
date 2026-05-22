@@ -73,13 +73,13 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
       if (stroke.type === 'text') {
         ctx.save()
         ctx.fillStyle = stroke.color || '#1a1a2e'
-        const fontSize = (stroke.lineWidth || 2.7) * 6
+        const fontSize = (stroke.lineWidth || 2.7) * 6 * scale
         ctx.font = `bold ${fontSize}px "Inter", "Segoe UI", sans-serif`
         // Auto-fill annotations use 'alphabetic' (matches PDF baseline from text layer).
         // User-typed annotations use 'top' (intuitive: click position = top of text).
         ctx.textBaseline = stroke._baselineY ? 'alphabetic' : 'top'
         // Support fraction-based coordinates (auto-fill annotations)
-    const vw = viewportSize?.width || 1
+        const vw = viewportSize?.width || 1
         const vh = viewportSize?.height || 1
         const px = stroke.xFrac != null ? stroke.xFrac * vw : stroke.x
         const py = stroke.yFrac != null ? stroke.yFrac * vh : stroke.y
@@ -116,7 +116,7 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
       ctx.stroke()
       ctx.restore()
     }
-  }, [viewportSize])
+  }, [viewportSize, scale])
 
   const dpr = useRef(window.devicePixelRatio || 1)
 
@@ -705,8 +705,8 @@ async function buildSmartAutoAnnotations(pdfPage, patientData) {
   if (!usedKeys.has('patient_name') && values.patient_name) {
     // Place a "patient sticker" in the top-right corner where forms usually have white space.
     // The previous gap detection logic failed because logos/images don't have text layers.
-    const insertY = 0.025;
-    const startX = 0.56;
+    const insertY = 0.024;
+    const startX = 0.515;
 
     const lines = [
       [
@@ -714,16 +714,12 @@ async function buildSmartAutoAnnotations(pdfPage, patientData) {
         values.age_gender   && `Age/Sex: ${values.age_gender}`,
       ].filter(Boolean),
       [
-        values.reg_no      && `UHID: ${values.reg_no}`,
+        values.reg_no      && `UHID: ${values.reg_no}${values.room_bed ? ` / Bed: ${values.room_bed}` : ''}`,
         values.today_date   && `Date: ${values.today_date}`,
       ].filter(Boolean),
       [
         values.consultant  && `Dr: ${values.consultant}`,
-        values.department  && `Dept: ${values.department}`,
-      ].filter(Boolean),
-      [
-        values.room_bed    && `Bed: ${values.room_bed}`,
-        values.blood_group && `Blood: ${values.blood_group}`,
+        values.department  && `Dept: ${values.department}${values.blood_group ? ` / B/G: ${values.blood_group}` : ''}`,
       ].filter(Boolean),
     ].filter(row => row.length > 0)
 
@@ -733,7 +729,7 @@ async function buildSmartAutoAnnotations(pdfPage, patientData) {
           type:        'text',
           content:     text,
           xFrac:       startX + colIdx * 0.22,
-          yFrac:       insertY + lineIdx * 0.028,
+          yFrac:       insertY + lineIdx * 0.033,
           x: 0, y: 0,
           color:       '#1e3a5f',
           lineWidth:   2.0,
@@ -741,6 +737,7 @@ async function buildSmartAutoAnnotations(pdfPage, patientData) {
           _autofilled: true,
           _baselineY:  false,
           _label:      'fallback',
+          refScale:    1.0,
         })
       })
     })
@@ -846,8 +843,8 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
   const [autoFilled, setAutoFilled] = useState(false)
   const autoFilledRef = useRef(false)
 
-  // Consider a form "blank" if it has no annotations OR only old auto-filled ones
-  const isBlankForm = annotations.length === 0 || annotations.every(a => a._autofilled)
+  // Check if Page 1 already has autofilled annotations
+  const hasAutoFilled = annotations.some(a => a._autofilled && a.page === 1)
 
   // Sync state whenever formInstance.id changes.
   // NOTE: do NOT reset pdfDoc here — if two forms share the same PDF file,
@@ -956,13 +953,16 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
         if (cancelled) return
         setViewportSize({ width: viewport.width, height: viewport.height })
         // Smart auto-fill: read PDF text layer to find EXACT label positions
-        if (page === 1 && isBlankForm && patientData && !autoFilledRef.current) {
+        if (page === 1 && !hasAutoFilled && patientData && !autoFilledRef.current) {
           try {
             const autoAnns = await buildSmartAutoAnnotations(pdfPage, patientData)
             if (!cancelled && autoAnns.length > 0) {
               autoFilledRef.current = true
               setAutoFilled(true)
-              setAnnotations(autoAnns)
+              setAnnotations(prev => {
+                const clearPrev = prev.filter(a => !(a._autofilled && a.page === 1))
+                return [...clearPrev, ...autoAnns]
+              })
             }
           } catch (err) {
             console.warn('[AutoFill] Smart auto-fill failed:', err)
