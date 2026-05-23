@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react'
 import {
   Pen, Eraser, Undo2, Trash2, Save, CheckCircle, Loader,
   ChevronLeft, ChevronRight, ZoomIn, ZoomOut, X, Lock, Maximize2, Type, Download, ClipboardList, Hand
@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext'
 
 // ─── Ink Canvas ──────────────────────────────────────────────────────────────
 // InkCanvas — canErase controls whether eraser/undo/clear tools are available
-function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, viewportSize, onSave, canErase, allowDrawing = true, scale = 1, onSwipeLeft, onSwipeRight }) {
+const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, viewportSize, onSave, canErase, allowDrawing = true, scale = 1, onSwipeLeft, onSwipeRight }) {
   const canvasRef = useRef(null)
   const [tool, setTool] = useState(allowDrawing ? 'pen' : 'type')
   const [color, setColor] = useState('#1a1a2e')
@@ -350,6 +350,11 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
     } catch (e) { alert('Save failed: ' + e.message) } finally { setSaving(false) }
   }
 
+  // Expose save() to parent via ref (used by the form-switch confirmation dialog)
+  useImperativeHandle(ref, () => ({
+    save: handleSave,
+  }), [handleSave])
+
   const COLORS = ['#1a1a2e', '#dc2626', '#2563eb', '#059669', '#b45309', '#7c3aed', '#0891b2']
   const WIDTHS = [1.5, 2.5, 4, 7]
 
@@ -521,7 +526,7 @@ function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, v
       </div>
     </div>
   )
-}
+}) // ─── end InkCanvas ───────────────────────────────────────────────────────────
 
 // ─── Smart PDF-aware Auto-fill ────────────────────────────────────────────────
 // Field label aliases: we search the PDF text layer for these strings and place
@@ -870,7 +875,12 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
   const swipeRef = useRef({ x: 0, y: 0, time: 0 })
   const [autoFilled, setAutoFilled] = useState(false)
   const autoFilledRef = useRef(false)
-  const autoFilledPagesRef = useRef(new Set()) // tracks which pages have had auto-fill applied
+  const autoFilledPagesRef = useRef(new Set())
+  // Save-before-navigate dialog
+  const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [pendingNavDir, setPendingNavDir] = useState(null)
+  const [pendingNavAction, setPendingNavAction] = useState(null)
+  const [dialogSaving, setDialogSaving] = useState(false)
 
 
   // Sync state whenever formInstance.id changes.
@@ -1044,39 +1054,50 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
   }
 
   // ── Navigation (Page & Form) ─────────────────────────────────────────────
-  // Animate slide-out in direction, change page/form, then slide-in from opposite side
-  const navigate = useCallback((dir, action) => {
-    if (transitioning) return
-    setSlideDir(dir)        // triggers slide-out CSS animation
+  // Run the actual slide animation + action
+  const executeNavigate = useCallback((dir, action) => {
+    setSlideDir(dir)
     setTransitioning(true)
     setTimeout(() => {
-      action()              // change page or form
-      setSlideDir(dir === 'left' ? 'in-right' : 'in-left') // slide-in from opposite
+      action()
+      setSlideDir(dir === 'left' ? 'in-right' : 'in-left')
       setTimeout(() => {
         setSlideDir(null)
         setTransitioning(false)
       }, 280)
     }, 220)
-  }, [transitioning])
+  }, [])
+
+  // Navigate: show save dialog when switching forms, animate directly for page flips
+  const navigate = useCallback((dir, action, isFormSwitch = false) => {
+    if (transitioning) return
+    if (isFormSwitch) {
+      setPendingNavDir(dir)
+      setPendingNavAction(() => action) // store as function
+      setShowSaveDialog(true)
+      return
+    }
+    executeNavigate(dir, action)
+  }, [transitioning, executeNavigate])
 
   const goToNext = useCallback(() => {
     if (page < totalPages) {
-      navigate('left', () => setPage(p => p + 1))
+      navigate('left', () => setPage(p => p + 1), false)
     } else if (allForms.length > 1 && onSwitchForm) {
       const idx = allForms.findIndex(f => f.id === formInstance.id)
       if (idx !== -1 && idx < allForms.length - 1) {
-        navigate('left', () => onSwitchForm(allForms[idx + 1]))
+        navigate('left', () => onSwitchForm(allForms[idx + 1]), true)
       }
     }
   }, [page, totalPages, allForms, formInstance.id, onSwitchForm, navigate])
 
   const goToPrev = useCallback(() => {
     if (page > 1) {
-      navigate('right', () => setPage(p => p - 1))
+      navigate('right', () => setPage(p => p - 1), false)
     } else if (allForms.length > 1 && onSwitchForm) {
       const idx = allForms.findIndex(f => f.id === formInstance.id)
       if (idx > 0) {
-        navigate('right', () => onSwitchForm(allForms[idx - 1]))
+        navigate('right', () => onSwitchForm(allForms[idx - 1]), true)
       }
     }
   }, [page, allForms, formInstance.id, onSwitchForm, navigate])
@@ -1234,6 +1255,36 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
     }
   }
 
+  // ── Save-dialog handlers ────────────────────────────────────────────────────
+  const handleDialogCancel = () => {
+    setShowSaveDialog(false)
+    setPendingNavAction(null)
+    setPendingNavDir(null)
+  }
+  const handleDialogSkip = () => {
+    const action = pendingNavAction
+    const dir    = pendingNavDir
+    setShowSaveDialog(false)
+    setPendingNavAction(null)
+    setPendingNavDir(null)
+    executeNavigate(dir, action)
+  }
+  const handleDialogSave = async () => {
+    if (!inkCanvasRef.current?.save) return handleDialogSkip()
+    setDialogSaving(true)
+    try {
+      await inkCanvasRef.current.save()
+    } catch (_) { /* save errors shown inside InkCanvas */ } finally {
+      setDialogSaving(false)
+    }
+    const action = pendingNavAction
+    const dir    = pendingNavDir
+    setShowSaveDialog(false)
+    setPendingNavAction(null)
+    setPendingNavDir(null)
+    executeNavigate(dir, action)
+  }
+
   const pageAnnotations = annotations.filter(s => s.page === page)
 
   // Build info strip from patientData
@@ -1248,6 +1299,120 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
 
   return (
     <div ref={fullScreenRef} style={{ position: 'fixed', inset: 0, background: '#0f172a', zIndex: 99999, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+      {/* ── Save-before-navigate confirmation dialog ───────────────────── */}
+      {showSaveDialog && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 99999,
+          background: 'rgba(0,0,0,0.65)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '1.5rem',
+          animation: 'fadeIn 180ms ease',
+        }}>
+          <div style={{
+            background: 'linear-gradient(145deg, #1e293b, #0f172a)',
+            border: '1px solid rgba(99,102,241,0.3)',
+            borderRadius: 20,
+            padding: '2rem 2.25rem',
+            maxWidth: 420, width: '100%',
+            boxShadow: '0 32px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.05)',
+            animation: 'fadeInUp 220ms cubic-bezier(0.4,0,0.2,1)',
+          }}>
+            {/* Icon */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.25rem' }}>
+              <div style={{
+                width: 56, height: 56, borderRadius: '50%',
+                background: 'rgba(245,158,11,0.15)',
+                border: '1.5px solid rgba(245,158,11,0.4)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '1.6rem',
+              }}>💾</div>
+            </div>
+            {/* Title */}
+            <div style={{ textAlign: 'center', marginBottom: '0.6rem' }}>
+              <div style={{ color: '#fff', fontWeight: 800, fontSize: '1.1rem', letterSpacing: '-0.01em' }}>
+                Save before continuing?
+              </div>
+            </div>
+            {/* Subtitle */}
+            <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
+              <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.84rem', lineHeight: 1.6 }}>
+                You're about to leave
+              </div>
+              <div style={{
+                marginTop: '0.4rem', display: 'inline-block',
+                background: 'rgba(99,102,241,0.15)',
+                border: '1px solid rgba(99,102,241,0.3)',
+                borderRadius: 8, padding: '0.25rem 0.75rem',
+                color: '#a5b4fc', fontWeight: 700, fontSize: '0.82rem',
+              }}>
+                📄 {formInstance.template_name}
+              </div>
+              <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.82rem', marginTop: '0.5rem' }}>
+                Any unsaved annotations will be lost.
+              </div>
+            </div>
+            {/* Actions */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+              {/* Save & Continue */}
+              <button
+                onClick={handleDialogSave}
+                disabled={dialogSaving}
+                style={{
+                  width: '100%', padding: '0.75rem', borderRadius: 12, border: 'none',
+                  background: dialogSaving
+                    ? 'rgba(99,102,241,0.4)'
+                    : 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                  color: '#fff', fontWeight: 700, fontSize: '0.9rem',
+                  cursor: dialogSaving ? 'not-allowed' : 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                  boxShadow: '0 4px 16px rgba(99,102,241,0.35)',
+                  transition: 'all 150ms',
+                }}
+              >
+                {dialogSaving
+                  ? <><Loader size={15} className="spin" /> Saving...</>
+                  : <><CheckCircle size={15} /> Save &amp; Continue</>
+                }
+              </button>
+              {/* Skip & Continue */}
+              <button
+                onClick={handleDialogSkip}
+                disabled={dialogSaving}
+                style={{
+                  width: '100%', padding: '0.7rem', borderRadius: 12, border: 'none',
+                  background: 'rgba(255,255,255,0.06)',
+                  color: 'rgba(255,255,255,0.75)', fontWeight: 600, fontSize: '0.88rem',
+                  cursor: dialogSaving ? 'not-allowed' : 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                  transition: 'all 150ms',
+                }}
+                onMouseEnter={e => { if (!dialogSaving) e.currentTarget.style.background = 'rgba(255,255,255,0.1)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)' }}
+              >
+                <ChevronRight size={15} /> Skip &amp; Continue
+              </button>
+              {/* Cancel */}
+              <button
+                onClick={handleDialogCancel}
+                disabled={dialogSaving}
+                style={{
+                  width: '100%', padding: '0.6rem', borderRadius: 12, border: 'none',
+                  background: 'transparent',
+                  color: 'rgba(255,255,255,0.35)', fontWeight: 500, fontSize: '0.85rem',
+                  cursor: dialogSaving ? 'not-allowed' : 'pointer',
+                  transition: 'color 150ms',
+                }}
+                onMouseEnter={e => { if (!dialogSaving) e.currentTarget.style.color = 'rgba(255,255,255,0.7)' }}
+                onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.35)' }}
+              >
+                ✕ Cancel — stay on this form
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Top bar */}
       <div style={{ display: 'flex', alignItems: 'center', padding: '0.6rem 1rem', background: '#1e293b', borderBottom: '1px solid rgba(255,255,255,0.08)', gap: '0.75rem', flexShrink: 0, flexWrap: 'wrap' }}>
         <button onClick={onClose} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 8, padding: '0.4rem 0.8rem', color: 'rgba(255,255,255,0.85)', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 600 }}>
@@ -1425,6 +1590,7 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
           ) : (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: 'fit-content' }}>
               <InkCanvas
+                ref={inkCanvasRef}
                 key={`${formInstance.id}-p${page}`}
                 formId={formInstance.id}
                 initialAnnotations={pageAnnotations}
