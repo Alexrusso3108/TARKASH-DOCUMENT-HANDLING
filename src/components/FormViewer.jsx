@@ -439,7 +439,20 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
       </div>
 
       {/* Canvas area — scrollable, PDF centered via margin:auto (alignItems:center breaks scroll) */}
-      <div style={{ overflow: 'auto', background: '#1e293b', display: 'flex', flex: 1, alignItems: 'flex-start' }}>
+      <div 
+        className="pdf-scroll-container"
+        style={{ 
+          overflowX: 'hidden', 
+          overflowY: 'auto', 
+          background: '#1e293b', 
+          display: 'flex', 
+          flex: 1, 
+          alignItems: 'flex-start',
+          scrollbarWidth: 'auto',
+          scrollbarColor: 'rgba(99, 102, 241, 0.75) rgba(30, 41, 59, 0.4)',
+          touchAction: 'pan-y'
+        }}
+      >
         <div style={{ position: 'relative', display: 'inline-block', lineHeight: 0, margin: 'auto' }}>
           {/* PDF layer */}
           <canvas id={`pdf-canvas-${pdfPage}`} style={{ display: 'block' }} />
@@ -453,7 +466,7 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
             style={{
               position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
               cursor: tool === 'eraser' ? 'cell' : 'crosshair',
-              touchAction: 'none',
+              touchAction: tool === 'hand' ? 'auto' : 'none',
               pointerEvents: tool === 'type' ? 'none' : 'auto',
             }}
           />
@@ -1571,15 +1584,20 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
           onPointerDown={onPointerDown}
           onPointerUp={onPointerUp}
           onWheel={(e) => {
-            // Trackpad horizontal horizontal swipe detection
-            if (Math.abs(e.deltaX) > 40 && !transitioning) {
+            // Only intercept clearly horizontal trackpad swipes.
+            // If the event has any significant vertical component, let the browser scroll natively.
+            const absX = Math.abs(e.deltaX)
+            const absY = Math.abs(e.deltaY)
+            if (absX > absY && absX > 40 && !transitioning) {
+              e.preventDefault()
               if (e.deltaX > 0) goToNext()
               else goToPrev()
             }
           }}
           style={{ 
             flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', 
-            overflowX: 'hidden', overflowY: 'auto', background: '#1e293b', position: 'relative',
+            overflow: 'hidden',
+            background: '#1e293b', position: 'relative',
             animation: slideDir === 'left'     ? 'slideOutLeft 220ms cubic-bezier(0.4,0,0.2,1) forwards'
                      : slideDir === 'right'    ? 'slideOutRight 220ms cubic-bezier(0.4,0,0.2,1) forwards'
                      : slideDir === 'in-right' ? 'slideInRight 280ms cubic-bezier(0.4,0,0.2,1) forwards'

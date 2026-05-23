@@ -1410,6 +1410,32 @@ a:hover {
   background: var(--gray-400);
 }
 
+/* Scoped custom scrollbar for PDF scroll container, wider and high-contrast for tablets/desktops */
+.pdf-scroll-container::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.pdf-scroll-container::-webkit-scrollbar-track {
+  background: rgba(30, 41, 59, 0.45); /* Dark slate translucent track */
+  border-radius: 9999px;
+}
+
+.pdf-scroll-container::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.8); /* Rich Indigo-500 thumb with high visibility */
+  border: 2px solid #1e293b; /* Premium padding inset effect */
+  border-radius: 9999px;
+  min-height: 40px; /* Make thumb easily grabbable on long PDFs */
+}
+
+.pdf-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(129, 140, 248, 0.95); /* Indigo-400 on hover */
+}
+
+.pdf-scroll-container::-webkit-scrollbar-thumb:active {
+  background: #6366f1; /* High brightness Indigo active state */
+}
+
 /* ============================================
    ANIMATIONS
    ============================================ */
