@@ -1187,47 +1187,6 @@ app.patch('/api/billing/:id', requireAuth, async (req, res) => {
 })
 
 // ─────────────────────────────────────────────────────────────
-// DASHBOARD STATS
-// ─────────────────────────────────────────────────────────────
-
-app.get('/api/dashboard/stats', requireAuth, async (req, res) => {
-  try {
-    const hid = req.user.hospitalId
-    const [patients, beds, notes, discharges, recent, pendingNotes] = await Promise.all([
-      pool.query(`SELECT COUNT(*) AS total FROM patients WHERE hospital_id=$1`, [hid]),
-      pool.query(`SELECT
-        COUNT(*) FILTER (WHERE status='occupied')  AS occupied,
-        COUNT(*) FILTER (WHERE status='available') AS available,
-        COUNT(*)                                    AS total
-        FROM beds WHERE hospital_id=$1`, [hid]),
-      pool.query(`SELECT COUNT(*) AS pending FROM clinical_notes WHERE status='pending' AND hospital_id=$1`, [hid]),
-      pool.query(`SELECT COUNT(*) AS discharged FROM patients WHERE admitted_at::date = CURRENT_DATE AND hospital_id=$1`, [hid]),
-      pool.query(`
-        SELECT p.id, p.name, p.age, p.department AS dept, d.name AS doctor, p.status, p.admitted_at
-        FROM patients p LEFT JOIN doctors d ON p.doctor_id = d.id
-        WHERE p.hospital_id=$1 ORDER BY p.admitted_at DESC LIMIT 5`, [hid]),
-      pool.query(`
-        SELECT n.*, p.name AS patient_name, d.name AS doctor_name
-        FROM clinical_notes n
-        LEFT JOIN patients p ON n.patient_id = p.id
-        LEFT JOIN doctors  d ON n.doctor_id  = d.id
-        WHERE n.status = 'pending' AND n.hospital_id=$1 ORDER BY n.created_at LIMIT 5`, [hid]),
-    ])
-    const bedRow = beds.rows[0]
-    const occupancy = bedRow.total > 0 ? Math.round((bedRow.occupied / bedRow.total) * 100) : 0
-    res.json({
-      totalPatients: parseInt(patients.rows[0].total),
-      bedOccupancy: `${occupancy}%`,
-      bedDetail: `${bedRow.occupied}/${bedRow.total} beds occupied`,
-      pendingNotes: parseInt(notes.rows[0].pending),
-      dischargesToday: parseInt(discharges.rows[0].discharged),
-      recentPatients: recent.rows,
-      pendingNotesList: pendingNotes.rows,
-    })
-  } catch (e) { res.status(500).json({ error: e.message }) }
-})
-
-// ─────────────────────────────────────────────────────────────
 // REPORTS
 // ─────────────────────────────────────────────────────────────
 
