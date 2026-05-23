@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext'
 
 // ─── Ink Canvas ──────────────────────────────────────────────────────────────
 // InkCanvas — canErase controls whether eraser/undo/clear tools are available
-const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, viewportSize, onSave, canErase, allowDrawing = true, scale = 1, onSwipeLeft, onSwipeRight }, ref) {
+const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, viewportSize, onSave, canErase, allowDrawing = true, scale = 1, onSwipeLeft, onSwipeRight, onDirtyChange }, ref) {
   const canvasRef = useRef(null)
   const [tool, setTool] = useState(allowDrawing ? 'pen' : 'type')
   const [color, setColor] = useState('#1a1a2e')
@@ -25,6 +25,11 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
   const ctxRef = useRef(null)
   const [activeText, setActiveText] = useState(null) // {x, y, content}
   const textInputRef = useRef(null)
+
+  // Notify parent whenever the canvas becomes dirty (unsaved) or clean (saved)
+  useEffect(() => {
+    if (onDirtyChange) onDirtyChange(!saved)
+  }, [saved, onDirtyChange])
 
   // When parent injects auto-fill annotations, MERGE them (don't replace user strokes)
   useEffect(() => {
@@ -880,6 +885,7 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
   const [pendingNavDir, setPendingNavDir] = useState(null)
   const [pendingNavAction, setPendingNavAction] = useState(null)
   const [dialogSaving, setDialogSaving] = useState(false)
+  const [isDirty, setIsDirty] = useState(false) // true when InkCanvas has unsaved changes
 
 
   // Sync state whenever formInstance.id changes.
@@ -895,6 +901,7 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
     autoFilledRef.current = false
     autoFilledPagesRef.current = new Set()
     setAutoFilled(false)
+    setIsDirty(false)
   }, [formInstance.id])
 
   // ── Read admin flag from auth context ────────────────────────────────────
@@ -1057,6 +1064,7 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
   const executeNavigate = useCallback((dir, action) => {
     setSlideDir(dir)
     setTransitioning(true)
+    setIsDirty(false) // reset dirty on navigation
     setTimeout(() => {
       action()
       setSlideDir(dir === 'left' ? 'in-right' : 'in-left')
@@ -1067,36 +1075,36 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
     }, 220)
   }, [])
 
-  // Navigate: show save dialog when switching forms, animate directly for page flips
-  const navigate = useCallback((dir, action, isFormSwitch = false) => {
+  // Navigate: show save dialog whenever there are unsaved changes (page flip OR form switch)
+  const navigate = useCallback((dir, action) => {
     if (transitioning) return
-    if (isFormSwitch) {
+    if (isDirty) {
       setPendingNavDir(dir)
-      setPendingNavAction(() => action) // store as function
+      setPendingNavAction(() => action)
       setShowSaveDialog(true)
       return
     }
     executeNavigate(dir, action)
-  }, [transitioning, executeNavigate])
+  }, [transitioning, isDirty, executeNavigate])
 
   const goToNext = useCallback(() => {
     if (page < totalPages) {
-      navigate('left', () => setPage(p => p + 1), false)
+      navigate('left', () => setPage(p => p + 1))
     } else if (allForms.length > 1 && onSwitchForm) {
       const idx = allForms.findIndex(f => f.id === formInstance.id)
       if (idx !== -1 && idx < allForms.length - 1) {
-        navigate('left', () => onSwitchForm(allForms[idx + 1]), true)
+        navigate('left', () => onSwitchForm(allForms[idx + 1]))
       }
     }
   }, [page, totalPages, allForms, formInstance.id, onSwitchForm, navigate])
 
   const goToPrev = useCallback(() => {
     if (page > 1) {
-      navigate('right', () => setPage(p => p - 1), false)
+      navigate('right', () => setPage(p => p - 1))
     } else if (allForms.length > 1 && onSwitchForm) {
       const idx = allForms.findIndex(f => f.id === formInstance.id)
       if (idx > 0) {
-        navigate('right', () => onSwitchForm(allForms[idx - 1]), true)
+        navigate('right', () => onSwitchForm(allForms[idx - 1]))
       }
     }
   }, [page, allForms, formInstance.id, onSwitchForm, navigate])
@@ -1337,7 +1345,7 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
             {/* Subtitle */}
             <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
               <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: '0.84rem', lineHeight: 1.6 }}>
-                You're about to leave
+                You have unsaved annotations on
               </div>
               <div style={{
                 marginTop: '0.4rem', display: 'inline-block',
@@ -1349,7 +1357,7 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
                 📄 {formInstance.template_name}
               </div>
               <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.82rem', marginTop: '0.5rem' }}>
-                Any unsaved annotations will be lost.
+                Save now or your changes will be lost.
               </div>
             </div>
             {/* Actions */}
@@ -1456,12 +1464,12 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
 
         {/* Page navigation */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+          <button onClick={goToPrev} disabled={page <= 1}
             style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 7, width: 32, height: 32, cursor: 'pointer', color: 'rgba(255,255,255,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <ChevronLeft size={15} />
           </button>
           <span style={{ color: '#fff', fontSize: '0.875rem', minWidth: 70, textAlign: 'center' }}>Page {page} / {totalPages}</span>
-          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+          <button onClick={goToNext} disabled={page >= totalPages && (allForms.length <= 1 || allForms.findIndex(f => f.id === formInstance.id) >= allForms.length - 1)}
             style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 7, width: 32, height: 32, cursor: 'pointer', color: 'rgba(255,255,255,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <ChevronRight size={15} />
           </button>
@@ -1601,6 +1609,7 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
                 scale={scale}
                 onSwipeLeft={goToNext}
                 onSwipeRight={goToPrev}
+                onDirtyChange={setIsDirty}
                 externalAnnotations={autoFilled ? annotations.filter(s => s.page === page && s._autofilled) : undefined}
               />
               
