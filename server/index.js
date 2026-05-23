@@ -646,7 +646,7 @@ app.patch('/api/opd/:id', requireAuth, async (req, res) => {
 
 app.get('/api/notes', requireAuth, async (req, res) => {
   try {
-    const { status = 'All', priority = 'All', search = '' } = req.query
+    const { status = 'All', priority = 'All', search = '', patient_id } = req.query
     const hid = req.user.hospitalId
     let query = `
       SELECT n.*, p.name AS patient_name, d.name AS doctor_name
@@ -655,6 +655,10 @@ app.get('/api/notes', requireAuth, async (req, res) => {
       LEFT JOIN doctors  d ON n.doctor_id  = d.id
       WHERE n.hospital_id = $1`
     const params = [hid]
+    if (patient_id) {
+      params.push(patient_id)
+      query += ` AND n.patient_id = $${params.length}`
+    }
     if (status !== 'All') { params.push(status); query += ` AND n.status = $${params.length}` }
     if (priority !== 'All') { params.push(priority); query += ` AND n.priority = $${params.length}` }
     if (search) { params.push(`%${search}%`); const n1=params.length; params.push(`%${search}%`); const n2=params.length; query += ` AND (p.name ILIKE $${n1} OR n.note_type ILIKE $${n2})` }
