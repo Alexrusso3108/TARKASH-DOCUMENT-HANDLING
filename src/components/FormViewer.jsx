@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext'
 
 // ─── Ink Canvas ──────────────────────────────────────────────────────────────
 // InkCanvas — canErase controls whether eraser/undo/clear tools are available
-const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, viewportSize, onSave, canErase, allowDrawing = true, scale = 1, onSwipeLeft, onSwipeRight }) {
+const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, viewportSize, onSave, canErase, allowDrawing = true, scale = 1, onSwipeLeft, onSwipeRight }, ref) {
   const canvasRef = useRef(null)
   const [tool, setTool] = useState(allowDrawing ? 'pen' : 'type')
   const [color, setColor] = useState('#1a1a2e')
@@ -350,10 +350,9 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
     } catch (e) { alert('Save failed: ' + e.message) } finally { setSaving(false) }
   }
 
-  // Expose save() to parent via ref (used by the form-switch confirmation dialog)
-  useImperativeHandle(ref, () => ({
-    save: handleSave,
-  }), [handleSave])
+  // Expose save() to parent via ref (used by the form-switch confirmation dialog).
+  // useCallback ensures the imperative handle is stable and not re-registered every render.
+  useImperativeHandle(ref, () => ({ save: handleSave }), [handleSave])
 
   const COLORS = ['#1a1a2e', '#dc2626', '#2563eb', '#059669', '#b45309', '#7c3aed', '#0891b2']
   const WIDTHS = [1.5, 2.5, 4, 7]
