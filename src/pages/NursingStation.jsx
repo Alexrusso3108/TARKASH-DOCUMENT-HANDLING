@@ -79,14 +79,12 @@ export default function NursingStation() {
   const markMedicationGiven = async (record) => {
     try {
       const updatedData = { ...record, status: 'Given', last_given: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), nurse_name: user?.name || 'RN. Duty' }
+      const recordId = record.id
       delete updatedData.id
       delete updatedData.date
-      // To simulate update, we create a new note and it acts as the latest status, or we just add a new note. 
-      // For simplicity, we just add a new note representing the updated status.
-      await api.createNote({
-        patient_id: selectedPatient.id,
-        doctor_id: selectedPatient.doctor_id,
-        note_type: 'EMAR',
+      
+      // Update the existing eMAR note in-place instead of creating a duplicate note
+      await api.updateNote(recordId, {
         content: JSON.stringify(updatedData)
       })
       fetchData(selectedPatient.id)
