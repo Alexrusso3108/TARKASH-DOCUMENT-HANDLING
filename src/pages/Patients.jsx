@@ -96,30 +96,53 @@ function F({ label, required, span, children }) {
 }
 
 // ─── Registration / Admission Modal ──────────────────────────────────────────
-function RegisterModal({ doctors, onClose, onSave }) {
+function RegisterModal({ doctors, onClose, onSave, patient = null }) {
   const [step, setStep] = useState(0) // 0=Personal, 1=Clinical, 2=Payment/Insurance, 3=Consent
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
   const [form, setForm] = useState({
     // Personal
-    name: '', age: '', dob: '', gender: 'Male', blood_group: 'Unknown',
-    phone: '', alt_phone: '', email: '',
-    aadhaar: '', abha_id: '',
-    address: '', city: '', state: 'Maharashtra', pincode: '',
-    religion: '', marital_status: '',
-    patient_category: 'General',
+    name: patient?.name || '', 
+    age: patient?.age || '', 
+    dob: patient?.dob || '', 
+    gender: patient?.gender || 'Male', 
+    blood_group: patient?.blood_group || 'Unknown',
+    phone: patient?.phone || '', 
+    alt_phone: patient?.alt_phone || '', 
+    email: patient?.email || '',
+    aadhaar: patient?.aadhaar || '', 
+    abha_id: patient?.abha_id || '',
+    address: patient?.address || '', 
+    city: patient?.city || '', 
+    state: patient?.state || 'Maharashtra', 
+    pincode: patient?.pincode || '',
+    religion: patient?.religion || '', 
+    marital_status: patient?.marital_status || '',
+    patient_category: patient?.patient_category || 'General',
     // Guardian / Emergency
-    guardian_name: '', guardian_relation: 'Spouse', guardian_phone: '',
+    guardian_name: patient?.guardian_name || '', 
+    guardian_relation: patient?.guardian_relation || 'Spouse', 
+    guardian_phone: patient?.guardian_phone || '',
     // Clinical
-    admission_type: 'OPD', department: '', doctor_id: '', notes: '',
-    status: 'Stable', mlc_type: 'None', mlc_police_info: '',
-    referred_by: '', referral_hospital: '',
+    admission_type: patient?.admission_type || 'OPD', 
+    department: patient?.department || '', 
+    doctor_id: patient?.doctor_id || '', 
+    notes: patient?.notes || '',
+    status: patient?.status || 'Stable', 
+    mlc_type: patient?.mlc_type || 'None', 
+    mlc_police_info: patient?.mlc_police_info || '',
+    referred_by: patient?.referred_by || '', 
+    referral_hospital: patient?.referral_hospital || '',
     // Payment
-    payment_type: 'Self Pay (Cash)',
-    insurance_company: '', tpa_name: '', policy_no: '', validity: '',
+    payment_type: patient?.payment_type || 'Self Pay (Cash)',
+    insurance_company: patient?.insurance_company || '', 
+    tpa_name: patient?.tpa_name || '', 
+    policy_no: patient?.policy_no || '', 
+    validity: patient?.validity || '',
     // Meta
-    consent_given: false, estimate_given: false,
+    consent_given: patient ? true : false,
+    estimate_given: patient ? true : false,
   })
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -145,9 +168,25 @@ function RegisterModal({ doctors, onClose, onSave }) {
   const submit = async () => {
     setSaving(true); setError(null)
     try {
-      const payload = { ...form }
-      const patient = await api.createPatient(payload)
-      onSave(patient); onClose()
+      const allowedKeys = [
+        'name', 'age', 'gender', 'blood_group', 'department', 'doctor_id',
+        'phone', 'email', 'address', 'status', 'admission_type', 'notes'
+      ]
+      const payload = {}
+      allowedKeys.forEach(k => {
+        if (form[k] !== undefined) {
+          payload[k] = form[k]
+        }
+      })
+      if (payload.age) payload.age = parseInt(payload.age) || 0
+
+      let savedPatient
+      if (patient) {
+        savedPatient = await api.updatePatient(patient.id, payload)
+      } else {
+        savedPatient = await api.createPatient(payload)
+      }
+      onSave(savedPatient); onClose()
     } catch (e) { setError(e.message) } finally { setSaving(false) }
   }
 
@@ -160,9 +199,11 @@ function RegisterModal({ doctors, onClose, onSave }) {
         {/* Header */}
         <div className="modal-header">
           <div>
-            <h4 style={{ color: 'var(--gray-900)', fontWeight: 700 }}>New Patient Registration</h4>
+            <h4 style={{ color: 'var(--gray-900)', fontWeight: 700 }}>
+              {patient ? 'Edit Patient Details' : 'New Patient Registration'}
+            </h4>
             <p style={{ fontSize: '0.8rem', color: 'var(--gray-400)', marginTop: 2 }}>
-              UHID will be auto-generated upon submission
+              {patient ? `Editing record for UHID: ${patient.id}` : 'UHID will be auto-generated upon submission'}
             </p>
           </div>
           <button className="btn btn-ghost btn-icon" onClick={onClose}><X size={18} /></button>
@@ -427,7 +468,13 @@ function RegisterModal({ doctors, onClose, onSave }) {
               {step === 0 ? 'Cancel' : '← Back'}
             </button>
             <button className="btn btn-primary" onClick={next} disabled={saving}>
-              {saving ? <><Loader size={14} className="spin" /> Registering…</> : step < 3 ? 'Continue →' : <><CheckCircle size={14} /> Complete Registration</>}
+              {saving ? (
+                patient ? <><Loader size={14} className="spin" /> Saving…</> : <><Loader size={14} className="spin" /> Registering…</>
+              ) : step < 3 ? (
+                'Continue →'
+              ) : (
+                patient ? <><CheckCircle size={14} /> Save Changes</> : <><CheckCircle size={14} /> Complete Registration</>
+              )}
             </button>
           </div>
         </div>
@@ -437,7 +484,7 @@ function RegisterModal({ doctors, onClose, onSave }) {
 }
 
 // ─── Patient Detail Side Panel ────────────────────────────────────────────────
-function PatientPanel({ patient, onClose }) {
+function PatientPanel({ patient, onClose, onEdit }) {
   const [tab, setTab] = useState('overview')
   const [forms, setForms] = useState([])
   const [templates, setTemplates] = useState([])
@@ -548,6 +595,11 @@ function PatientPanel({ patient, onClose }) {
                 {patient.blood_group && <span style={{ background: 'rgba(239,68,68,0.3)', color: '#fca5a5', fontSize: '0.65rem', fontWeight: 700, padding: '0.15rem 0.5rem', borderRadius: 999 }}>{patient.blood_group}</span>}
               </div>
             </div>
+            <button onClick={() => onEdit(patient)} title="Edit Patient Details" style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 8, width: 30, height: 30, cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginRight: '0.375rem', transition: 'all 150ms' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}>
+              <Pen size={13} />
+            </button>
             <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 8, width: 30, height: 30, cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <X size={15} />
             </button>
@@ -817,6 +869,7 @@ export default function Patients() {
   const [filter, setFilter] = useState('All')
   const [showModal, setShowModal] = useState(false)
   const [selectedPatient, setSelectedPatient] = useState(null)
+  const [editPatient, setEditPatient] = useState(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true); setError(null)
@@ -972,13 +1025,21 @@ export default function Patients() {
                       </span>
                     </td>
                     <td onClick={e => e.stopPropagation()}>
-                      <button
-                        className="btn btn-ghost btn-icon-sm"
-                        title="View Patient"
-                        onClick={() => setSelectedPatient(prev => prev?.id === p.id ? null : p)}
-                        style={{ color: selectedPatient?.id === p.id ? 'var(--primary-600)' : undefined }}>
-                        <Eye size={13} />
-                      </button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                        <button
+                          className="btn btn-ghost btn-icon-sm"
+                          title="View Patient"
+                          onClick={() => setSelectedPatient(prev => prev?.id === p.id ? null : p)}
+                          style={{ color: selectedPatient?.id === p.id ? 'var(--primary-600)' : undefined }}>
+                          <Eye size={13} />
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-icon-sm"
+                          title="Edit Details"
+                          onClick={() => setEditPatient(p)}>
+                          <Pen size={12} color="var(--gray-500)" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1003,11 +1064,23 @@ export default function Patients() {
           <PatientPanel
             patient={selectedPatient}
             onClose={() => setSelectedPatient(null)}
+            onEdit={(p) => setEditPatient(p)}
           />
         )}
       </div>
 
       {showModal && <RegisterModal doctors={doctors} onClose={() => setShowModal(false)} onSave={handleSave} />}
+      {editPatient && (
+        <RegisterModal
+          doctors={doctors}
+          patient={editPatient}
+          onClose={() => setEditPatient(null)}
+          onSave={(updatedPatient) => {
+            setPatients(prev => prev.map(p => p.id === updatedPatient.id ? updatedPatient : p))
+            setSelectedPatient(updatedPatient)
+          }}
+        />
+      )}
     </div>
   )
 }
