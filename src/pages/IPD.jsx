@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { Search, Plus, BedDouble, X, Loader, CheckCircle, AlertCircle, ClipboardList, FileText, Pen, FolderOpen, Trash2, ChevronRight } from 'lucide-react'
 import { api, SERVER_URL } from '../api'
 import FormViewer from '../components/FormViewer'
@@ -460,6 +461,12 @@ export default function IPD() {
     ))
   }, [activeForm])
 
+  // Lock body scroll while a form overlay is open
+  useEffect(() => {
+    document.body.style.overflow = activeForm ? 'hidden' : ''
+    return () => { document.body.style.overflow = '' }
+  }, [activeForm])
+
   const handleAssigned = (enrichedBed) => {
     setBeds(prev => prev.map(b => b.id === enrichedBed.id ? enrichedBed : b))
   }
@@ -643,49 +650,55 @@ export default function IPD() {
         </div>
       )}
 
-      {/* Full-screen DischargeEditor for discharge summaries */}
-      {activeForm && activeForm.type === 'discharge' && selected && (
-        <DischargeEditor
-          formInstance={{ ...activeForm, patient_name: selected.patient_name }}
-          patientData={{
-            ...(selectedPatient || {}),
-            name:        selectedPatient?.name        || selected.patient_name,
-            id:          selectedPatient?.id          || selected.patient_id,
-            age:         selectedPatient?.age         || selected.age,
-            gender:      selectedPatient?.gender      || selected.gender || '',
-            phone:       selectedPatient?.phone       || selected.phone  || '',
-            department:  selectedPatient?.department  || selected.ward   || '',
-            doctor_name: selected.doctor_name         || selectedPatient?.doctor_name || '',
-            admitted_at: selectedPatient?.admitted_at || selected.admitted_at,
-            bed_id:      selected.id,
-          }}
-          onClose={() => setActiveForm(null)}
-          onSaved={(html) => handleDischargeSummarySaved([], 'in-progress')}
-        />
+      {/* Full-screen DischargeEditor portal — covers sidebar + topbar */}
+      {activeForm && activeForm.type === 'discharge' && selected && createPortal(
+        <div style={{ position: 'fixed', inset: 0, zIndex: 999999, display: 'flex', flexDirection: 'column', background: '#0f172a' }}>
+          <DischargeEditor
+            formInstance={{ ...activeForm, patient_name: selected.patient_name }}
+            patientData={{
+              ...(selectedPatient || {}),
+              name:        selectedPatient?.name        || selected.patient_name,
+              id:          selectedPatient?.id          || selected.patient_id,
+              age:         selectedPatient?.age         || selected.age,
+              gender:      selectedPatient?.gender      || selected.gender || '',
+              phone:       selectedPatient?.phone       || selected.phone  || '',
+              department:  selectedPatient?.department  || selected.ward   || '',
+              doctor_name: selected.doctor_name         || selectedPatient?.doctor_name || '',
+              admitted_at: selectedPatient?.admitted_at || selected.admitted_at,
+              bed_id:      selected.id,
+            }}
+            onClose={() => setActiveForm(null)}
+            onSaved={(html) => handleDischargeSummarySaved([], 'in-progress')}
+          />
+        </div>,
+        document.body
       )}
 
-      {/* Full-screen FormViewer — patient forms only */}
-      {activeForm && activeForm.type !== 'discharge' && selected && (
-        <FormViewer
-          key={activeForm.id}
-          formInstance={{ ...activeForm, patient_name: selected.patient_name, type: activeForm.type || 'form' }}
-          patientData={{
-            ...(selectedPatient || {}),
-            name:        selectedPatient?.name        || selected.patient_name,
-            id:          selectedPatient?.id          || selected.patient_id,
-            age:         selectedPatient?.age         || selected.age,
-            gender:      selectedPatient?.gender      || selected.gender || '',
-            phone:       selectedPatient?.phone       || selected.phone  || '',
-            department:  selectedPatient?.department  || selected.ward   || '',
-            doctor_name: selected.doctor_name         || selectedPatient?.doctor_name || '',
-            admitted_at: selectedPatient?.admitted_at || selected.admitted_at,
-            bed_id:      selected.id,
-          }}
-          onClose={() => setActiveForm(null)}
-          onAnnotationsSaved={handleAnnotationsSaved}
-          allForms={(patientForms || []).map(f => ({ ...f, type: 'form', patient_name: selected.patient_name }))}
-          onSwitchForm={(f) => setActiveForm(f)}
-        />
+      {/* Full-screen FormViewer portal — covers sidebar + topbar */}
+      {activeForm && activeForm.type !== 'discharge' && selected && createPortal(
+        <div style={{ position: 'fixed', inset: 0, zIndex: 999999, display: 'flex', flexDirection: 'column', background: '#0f172a' }}>
+          <FormViewer
+            key={activeForm.id}
+            formInstance={{ ...activeForm, patient_name: selected.patient_name, type: activeForm.type || 'form' }}
+            patientData={{
+              ...(selectedPatient || {}),
+              name:        selectedPatient?.name        || selected.patient_name,
+              id:          selectedPatient?.id          || selected.patient_id,
+              age:         selectedPatient?.age         || selected.age,
+              gender:      selectedPatient?.gender      || selected.gender || '',
+              phone:       selectedPatient?.phone       || selected.phone  || '',
+              department:  selectedPatient?.department  || selected.ward   || '',
+              doctor_name: selected.doctor_name         || selectedPatient?.doctor_name || '',
+              admitted_at: selectedPatient?.admitted_at || selected.admitted_at,
+              bed_id:      selected.id,
+            }}
+            onClose={() => setActiveForm(null)}
+            onAnnotationsSaved={handleAnnotationsSaved}
+            allForms={(patientForms || []).map(f => ({ ...f, type: 'form', patient_name: selected.patient_name }))}
+            onSwitchForm={(f) => setActiveForm(f)}
+          />
+        </div>,
+        document.body
       )}
 
       {/* Bed Detail Side Panel */}

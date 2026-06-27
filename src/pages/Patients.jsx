@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Search, Plus, Eye, FileText, Loader, X, Pen, ClipboardList,
   Activity, Phone, Droplets, BedDouble, Calendar, ChevronRight,
@@ -541,6 +542,12 @@ function PatientPanel({ patient, onClose, onEdit }) {
     setDischargeSummaries(prev => (prev || []).map(updater))
   }, [openForm])
 
+  // Lock body scroll while a form overlay is open
+  useEffect(() => {
+    document.body.style.overflow = openForm ? 'hidden' : ''
+    return () => { document.body.style.overflow = '' }
+  }, [openForm])
+
   const PANEL_TABS = [
     { id: 'overview', label: 'Overview', icon: Activity },
     { id: 'clinical', label: 'Clinical', icon: FileText },
@@ -552,25 +559,33 @@ function PatientPanel({ patient, onClose, onEdit }) {
 
   return (
     <>
-      {openForm && openForm.type === 'discharge' && (
-        <DischargeEditor
-          formInstance={{ ...openForm, patient_name: patient.name }}
-          patientData={patient}
-          onClose={() => setOpenForm(null)}
-          onSaved={(html) => handleAnnotationsSaved([], 'in-progress')}
-        />
+      {/* Discharge editor portal — covers sidebar + topbar */}
+      {openForm && openForm.type === 'discharge' && createPortal(
+        <div style={{ position: 'fixed', inset: 0, zIndex: 999999, display: 'flex', flexDirection: 'column', background: '#0f172a' }}>
+          <DischargeEditor
+            formInstance={{ ...openForm, patient_name: patient.name }}
+            patientData={patient}
+            onClose={() => setOpenForm(null)}
+            onSaved={(html) => handleAnnotationsSaved([], 'in-progress')}
+          />
+        </div>,
+        document.body
       )}
 
-      {openForm && openForm.type !== 'discharge' && (
-        <FormViewer
-          key={openForm.id}
-          formInstance={{ ...openForm, patient_name: patient.name }}
-          patientData={patient}
-          onClose={() => setOpenForm(null)}
-          onAnnotationsSaved={handleAnnotationsSaved}
-          allForms={[...(forms || []).map(f => ({ ...f, type: 'form' }))].map(f => ({ ...f, patient_name: patient.name }))}
-          onSwitchForm={(f) => setOpenForm(f)}
-        />
+      {/* FormViewer portal — covers sidebar + topbar */}
+      {openForm && openForm.type !== 'discharge' && createPortal(
+        <div style={{ position: 'fixed', inset: 0, zIndex: 999999, display: 'flex', flexDirection: 'column', background: '#0f172a' }}>
+          <FormViewer
+            key={openForm.id}
+            formInstance={{ ...openForm, patient_name: patient.name }}
+            patientData={patient}
+            onClose={() => setOpenForm(null)}
+            onAnnotationsSaved={handleAnnotationsSaved}
+            allForms={[...(forms || []).map(f => ({ ...f, type: 'form' }))].map(f => ({ ...f, patient_name: patient.name }))}
+            onSwitchForm={(f) => setOpenForm(f)}
+          />
+        </div>,
+        document.body
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#fff', borderRadius: 'var(--radius-xl)', border: '1px solid var(--gray-100)', boxShadow: '0 4px 24px rgba(0,0,0,0.10)', animation: 'slideInLeft 280ms cubic-bezier(0.34,1.12,0.64,1)', minHeight: 0, overflow: 'hidden' }}>
