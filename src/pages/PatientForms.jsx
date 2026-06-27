@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Search, Plus, FileText, X, Pen, CheckCircle, Loader, Users
 } from 'lucide-react'
@@ -128,7 +129,6 @@ export default function PatientForms() {
   const [search, setSearch] = useState('')
   const [showAssign, setShowAssign] = useState(false)
   const [openForm, setOpenForm] = useState(null)
-  const fsContainerRef = useRef(null) // always-in-DOM fullscreen container
 
   useEffect(() => {
     Promise.all([api.getPatients(), api.getFormTemplates()])
@@ -146,22 +146,20 @@ export default function PatientForms() {
     } catch (e) { console.error(e) } finally { setLoadingForms(false) }
   }, [])
 
-  // Open a form: call requestFullscreen on our persistent container (user gesture context),
-  // then set the form state — React will render FormViewer inside that now-fullscreen div.
+  // Lock body scroll while a form is open so the page doesn't scroll behind the overlay
+  useEffect(() => {
+    document.body.style.overflow = openForm ? 'hidden' : ''
+    return () => { document.body.style.overflow = '' }
+  }, [openForm])
+
+  // Open a form in a full-screen portal overlay (covers sidebar + topbar completely)
   const openFormFullscreen = useCallback((form) => {
-    const el = fsContainerRef.current
-    if (el && !document.fullscreenElement) {
-      el.requestFullscreen().catch(() => {})
-    }
     setOpenForm(form)
   }, [])
 
-  // Close the form viewer and exit fullscreen
+  // Close the form viewer
   const closeForm = useCallback(() => {
     setOpenForm(null)
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {})
-    }
   }, [])
 
   // When annotations are saved, update the local card status
@@ -186,19 +184,19 @@ export default function PatientForms() {
 
   return (
     <>
-      {/* Always-in-DOM fullscreen container — FormViewer renders inside this */}
-      <div
-        ref={fsContainerRef}
-        style={{
-          position: openForm ? 'fixed' : 'absolute',
-          inset: 0,
-          zIndex: openForm ? 99999 : -1,
-          display: openForm ? 'flex' : 'none',
-          flexDirection: 'column',
-          background: '#0f172a',
-        }}
-      >
-        {openForm && (
+      {/* Form viewer portal — renders directly onto document.body so it covers
+           the sidebar, topbar, and ALL other fixed elements unconditionally */}
+      {openForm && createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 999999,
+            display: 'flex',
+            flexDirection: 'column',
+            background: '#0f172a',
+          }}
+        >
           <FormViewer
             key={openForm.id}
             formInstance={{ ...openForm, patient_name: selectedPatient?.name }}
@@ -206,8 +204,9 @@ export default function PatientForms() {
             onClose={closeForm}
             onAnnotationsSaved={handleAnnotationsSaved}
           />
-        )}
-      </div>
+        </div>,
+        document.body
+      )}
 
       <div className="animate-fadeInUp">
       <div className="page-header">
