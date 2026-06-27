@@ -238,8 +238,6 @@ export default function DischargeEditor({ formInstance, patientData, onClose, on
   const isDoctor = user?.role === 'doctor' || isAdmin
   const canApprove = isDoctor && !isApproved
   const canEdit = !isApproved || isAdmin // Only admins can edit after approval
-  // Once approved, only admins may edit
-  const canEdit = !isApproved || isAdmin
 
   // ── Load PDF and extract text ──────────────────────────────────────────────
   useEffect(() => {
