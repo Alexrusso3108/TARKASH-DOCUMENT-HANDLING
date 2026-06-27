@@ -277,7 +277,17 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
     isDrawing.current = false
     activePointerType.current = null
     if (finishedStroke.points.length > 1) {
-      setStrokes(prev => [...prev, finishedStroke])
+      setStrokes(prev => {
+        const next = [...prev, finishedStroke]
+        // After an eraser stroke, do a full redraw so auto-filled text is
+        // composited back on top (eraser uses destination-out which visually
+        // clears everything beneath, including protected patient details).
+        if (finishedStroke.tool === 'eraser') {
+          // Use setTimeout(0) so the state update completes before we redraw
+          setTimeout(() => redrawAll(ctxRef.current, next), 0)
+        }
+        return next
+      })
       setSaved(false)
     }
     currentStrokeRef.current = null
@@ -288,7 +298,13 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
 
   const handleUndo = () => {
     setStrokes(prev => {
-      const next = prev.slice(0, -1)
+      // Find the last user-added stroke (skip _autofilled) and remove only that one
+      let lastUserIdx = -1
+      for (let i = prev.length - 1; i >= 0; i--) {
+        if (!prev[i]._autofilled) { lastUserIdx = i; break }
+      }
+      if (lastUserIdx === -1) return prev // nothing to undo
+      const next = [...prev.slice(0, lastUserIdx), ...prev.slice(lastUserIdx + 1)]
       redrawAll(ctxRef.current, next)
       return next
     })
@@ -297,9 +313,15 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
 
   const handleClear = () => {
     if (!window.confirm('Clear all annotations on this page?')) return
-    setStrokes([])
-    const ctx = ctxRef.current
-    if (ctx && canvasRef.current) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
+    setStrokes(prev => {
+      // Keep auto-filled patient data — only erase user strokes
+      const protected_ = prev.filter(s => s._autofilled)
+      const ctx = ctxRef.current
+      if (ctx && canvasRef.current) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
+      // Redraw the protected auto-filled annotations immediately
+      redrawAll(ctx, protected_)
+      return protected_
+    })
     setSaved(false)
   }
 

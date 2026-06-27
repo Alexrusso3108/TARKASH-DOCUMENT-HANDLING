@@ -237,6 +237,7 @@ export default function DischargeEditor({ formInstance, patientData, onClose, on
   const isApproved = !!formInstance.approved_by
   const isDoctor = user?.role === 'doctor' || isAdmin
   const canApprove = isDoctor && !isApproved
+  const canEdit = !isApproved || isAdmin // Only admins can edit after approval
   // Once approved, only admins may edit
   const canEdit = !isApproved || isAdmin
 
@@ -310,7 +311,7 @@ export default function DischargeEditor({ formInstance, patientData, onClose, on
 
   // ── Save text content to server ───────────────────────────────────────────
   const handleSave = async () => {
-    if (!editorRef.current) return
+    if (!editorRef.current || !canEdit) return
     const html = editorRef.current.innerHTML
     setSaving(true)
     try {
@@ -321,7 +322,7 @@ export default function DischargeEditor({ formInstance, patientData, onClose, on
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ text_content: html, status: 'in-progress' }),
+        body: JSON.stringify({ text_content: html, status: isApproved ? 'approved' : 'in-progress' }),
       })
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
