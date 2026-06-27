@@ -10,6 +10,8 @@ import { useAuth } from '../context/AuthContext'
 // InkCanvas — canErase controls whether eraser/undo/clear tools are available
 const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, viewportSize, onSave, canErase, allowDrawing = true, scale = 1, onSwipeLeft, onSwipeRight, onDirtyChange }, ref) {
   const canvasRef = useRef(null)
+  const protectedCanvasRef = useRef(null) // Separate layer for auto-filled patient data — immune to eraser
+  const protectedCtxRef = useRef(null)
   const [tool, setTool] = useState(allowDrawing ? 'pen' : 'type')
   const [color, setColor] = useState('#1a1a2e')
   const [lineWidth, setLineWidth] = useState(2.5)
@@ -73,36 +75,25 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
     }
   }, [activeText])
 
-  // ── Redraw all strokes on a ctx ──────────────────────────────────────────
+  // ── Redraw user strokes only (NEVER draws _autofilled — those live on protectedCanvas) ──
   const redrawAll = useCallback((ctx, strokeList) => {
     if (!ctx || !canvasRef.current) return
     ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
     for (const stroke of strokeList) {
+      // Auto-filled patient details are rendered on the protected canvas — never touch them here
+      if (stroke._autofilled) continue
       if (stroke.type === 'text') {
         ctx.save()
         ctx.fillStyle = stroke.color || '#1a1a2e'
         const fontSize = (stroke.lineWidth || 2.7) * 6 * scale
         ctx.font = `bold ${fontSize}px "Inter", "Segoe UI", sans-serif`
-        // Auto-fill annotations use 'alphabetic' (matches PDF baseline from text layer).
-        // User-typed annotations use 'top' (intuitive: click position = top of text).
         ctx.textBaseline = stroke._baselineY ? 'alphabetic' : 'top'
-        // Support fraction-based coordinates (auto-fill annotations)
         const vw = viewportSize?.width || 1
         const vh = viewportSize?.height || 1
         const px = stroke.xFrac != null ? stroke.xFrac * vw : stroke.x
         const py = stroke.yFrac != null ? stroke.yFrac * vh : stroke.y
         const lines = String(stroke.content || '').split('\n')
-        // For auto-filled text, cap width to the annotation's own right boundary
-        // (_maxXFrac) when set (sticker columns), otherwise fall back to canvas edge.
-        const rightBoundary = stroke._maxXFrac != null ? stroke._maxXFrac * vw : vw
-        const maxW = stroke._autofilled ? Math.max(20, rightBoundary - px - 4) : undefined
-        lines.forEach((line, i) => {
-          if (maxW != null) {
-            ctx.fillText(line, px, py + (i * fontSize * 1.25), maxW)
-          } else {
-            ctx.fillText(line, px, py + (i * fontSize * 1.25))
-          }
-        })
+        lines.forEach((line, i) => ctx.fillText(line, px, py + (i * fontSize * 1.25)))
         ctx.restore()
         continue
       }
@@ -116,7 +107,7 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
         ctx.globalCompositeOperation = 'source-over'
         ctx.strokeStyle = stroke.color || '#1a1a2e'
         ctx.lineWidth = stroke.width || 2.5
-        ctx.globalAlpha = 1  // always full opacity — older strokes saved with opacity<1 also render dark
+        ctx.globalAlpha = 1
       }
       ctx.lineCap = 'round'
       ctx.lineJoin = 'round'
@@ -134,33 +125,67 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
     }
   }, [viewportSize, scale])
 
+  // ── Redraw ONLY auto-filled annotations onto the protected canvas ────────────
+  // This canvas sits above the ink canvas with pointer-events:none.
+  // The eraser (destination-out on the ink canvas) can NEVER reach it.
+  const redrawProtected = useCallback((ctx, strokeList) => {
+    if (!ctx || !protectedCanvasRef.current) return
+    ctx.clearRect(0, 0, protectedCanvasRef.current.width, protectedCanvasRef.current.height)
+    for (const stroke of strokeList) {
+      if (!stroke._autofilled || stroke.type !== 'text') continue
+      ctx.save()
+      ctx.fillStyle = stroke.color || '#1a1a2e'
+      const fontSize = (stroke.lineWidth || 2.7) * 6 * scale
+      ctx.font = `bold ${fontSize}px "Inter", "Segoe UI", sans-serif`
+      ctx.textBaseline = stroke._baselineY ? 'alphabetic' : 'top'
+      const vw = viewportSize?.width || 1
+      const vh = viewportSize?.height || 1
+      const px = stroke.xFrac != null ? stroke.xFrac * vw : stroke.x
+      const py = stroke.yFrac != null ? stroke.yFrac * vh : stroke.y
+      const lines = String(stroke.content || '').split('\n')
+      const rightBoundary = stroke._maxXFrac != null ? stroke._maxXFrac * vw : vw
+      const maxW = Math.max(20, rightBoundary - px - 4)
+      lines.forEach((line, i) => ctx.fillText(line, px, py + (i * fontSize * 1.25), maxW))
+      ctx.restore()
+    }
+  }, [viewportSize, scale])
+
   const dpr = useRef(window.devicePixelRatio || 1)
 
-  // ── KEY FIX: size the canvas and redraw ONLY after PDF has rendered
-  //    (viewportSize comes from FormViewer after pdfPage.render() completes)
+  // ── Size both canvases and redraw after PDF renders ─────────────────────────
+  //    viewportSize comes from FormViewer after pdfPage.render() completes.
+  //    Ink canvas: user strokes only. Protected canvas: auto-filled text only.
   useEffect(() => {
     if (!viewportSize || !canvasRef.current) return
-    const canvas = canvasRef.current
     const ratio = window.devicePixelRatio || 1
     dpr.current = ratio
 
-    // High DPI fix: Scale hardware pixels, but keep CSS size identical to viewport
+    // ── Ink canvas (user strokes + eraser) ──
+    const canvas = canvasRef.current
     canvas.width = Math.floor(viewportSize.width * ratio)
     canvas.height = Math.floor(viewportSize.height * ratio)
     canvas.style.width = `${viewportSize.width}px`
     canvas.style.height = `${viewportSize.height}px`
-
     const ctx = canvas.getContext('2d')
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0) // Key for high-DPI sharpness
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
     ctxRef.current = ctx
-    
-    // Redraw saved strokes now that canvas has corrected DPI
     redrawAll(ctx, strokes)
-  }, [viewportSize, strokes, redrawAll])
-  // (strokes intentionally omitted — we only redraw on viewport change,
-  //  live drawing is handled incrementally in pointer events)
+
+    // ── Protected canvas (auto-filled patient details — eraser cannot reach this) ──
+    if (protectedCanvasRef.current) {
+      const pCanvas = protectedCanvasRef.current
+      pCanvas.width = Math.floor(viewportSize.width * ratio)
+      pCanvas.height = Math.floor(viewportSize.height * ratio)
+      pCanvas.style.width = `${viewportSize.width}px`
+      pCanvas.style.height = `${viewportSize.height}px`
+      const pCtx = pCanvas.getContext('2d')
+      pCtx.setTransform(ratio, 0, 0, ratio, 0, 0)
+      protectedCtxRef.current = pCtx
+      redrawProtected(pCtx, strokes)
+    }
+  }, [viewportSize, strokes, redrawAll, redrawProtected])
 
   const onPointerDown = useCallback((e) => {
     const canvas = canvasRef.current
@@ -277,17 +302,7 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
     isDrawing.current = false
     activePointerType.current = null
     if (finishedStroke.points.length > 1) {
-      setStrokes(prev => {
-        const next = [...prev, finishedStroke]
-        // After an eraser stroke, do a full redraw so auto-filled text is
-        // composited back on top (eraser uses destination-out which visually
-        // clears everything beneath, including protected patient details).
-        if (finishedStroke.tool === 'eraser') {
-          // Use setTimeout(0) so the state update completes before we redraw
-          setTimeout(() => redrawAll(ctxRef.current, next), 0)
-        }
-        return next
-      })
+      setStrokes(prev => [...prev, finishedStroke])
       setSaved(false)
     }
     currentStrokeRef.current = null
@@ -314,12 +329,11 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
   const handleClear = () => {
     if (!window.confirm('Clear all annotations on this page?')) return
     setStrokes(prev => {
-      // Keep auto-filled patient data — only erase user strokes
+      // Keep auto-filled patient data — only wipe user strokes from the ink canvas
       const protected_ = prev.filter(s => s._autofilled)
       const ctx = ctxRef.current
       if (ctx && canvasRef.current) ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
-      // Redraw the protected auto-filled annotations immediately
-      redrawAll(ctx, protected_)
+      // Protected canvas already holds these — no need to redraw them here
       return protected_
     })
     setSaved(false)
@@ -478,7 +492,7 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
         <div style={{ position: 'relative', display: 'inline-block', lineHeight: 0, margin: 'auto' }}>
           {/* PDF layer */}
           <canvas id={`pdf-canvas-${pdfPage}`} style={{ display: 'block' }} />
-          {/* Ink layer — exactly overlays the PDF canvas, no pointer events when type tool active */}
+          {/* Ink layer — user strokes + eraser. Auto-filled text is NOT rendered here. */}
           <canvas
             ref={canvasRef}
             onPointerDown={tool !== 'type' ? onPointerDown : undefined}
@@ -490,6 +504,19 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
               cursor: tool === 'eraser' ? 'cell' : 'crosshair',
               touchAction: tool === 'hand' ? 'auto' : 'none',
               pointerEvents: tool === 'type' ? 'none' : 'auto',
+            }}
+          />
+          {/* Protected canvas — auto-filled patient details rendered here.
+               pointer-events:none means it never intercepts any input.
+               zIndex:5 keeps it visually above the ink canvas so it's always visible.
+               The eraser uses destination-out only on the ink canvas and can NEVER
+               affect pixels on this separate element. */}
+          <canvas
+            ref={protectedCanvasRef}
+            style={{
+              position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
+              pointerEvents: 'none',
+              zIndex: 5,
             }}
           />
 
