@@ -84,14 +84,28 @@ function SectionHeader({ label, icon: Icon, color = 'var(--primary-500)' }) {
 }
 
 // ─── Field wrapper ────────────────────────────────────────────────────────────
-function F({ label, required, span, children }) {
+// ─── Field wrapper ────────────────────────────────────────────────────────────
+// `error` — validation message string; when set, shows red outline + inline message
+function F({ label, required, span, error, children }) {
   return (
     <div className="form-group" style={span ? { gridColumn: `1 / span ${span}` } : {}}>
       <label className="form-label">
         {label}
         {required && <span style={{ color: 'var(--danger)', marginLeft: 3 }}>*</span>}
       </label>
-      {children}
+      {/* Wrap in a div with red outline when there's an error */}
+      <div style={error ? {
+        outline: '2px solid #dc2626',
+        outlineOffset: '1px',
+        borderRadius: 'var(--radius-lg, 8px)',
+      } : {}}>
+        {children}
+      </div>
+      {error && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginTop: '0.3rem' }}>
+          <span style={{ fontSize: '0.72rem', color: '#dc2626', fontWeight: 600 }}>⚠ {error}</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -100,7 +114,8 @@ function F({ label, required, span, children }) {
 function RegisterModal({ doctors, onClose, onSave, patient = null }) {
   const [step, setStep] = useState(0) // 0=Personal, 1=Clinical, 2=Payment/Insurance, 3=Consent
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState(null)         // API-level error
+  const [fieldErrors, setFieldErrors] = useState({}) // per-field validation errors
 
   const [form, setForm] = useState({
     // Personal
@@ -146,22 +161,45 @@ function RegisterModal({ doctors, onClose, onSave, patient = null }) {
     estimate_given: patient ? true : false,
   })
 
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const set = (k, v) => {
+    setForm(f => ({ ...f, [k]: v }))
+    // Clear the field-level error as soon as the user edits that field
+    if (fieldErrors[k]) setFieldErrors(fe => { const n = { ...fe }; delete n[k]; return n })
+  }
 
   const STEPS = ['Personal Details', 'Clinical Info', 'Payment / Insurance', 'Consent & Submit']
 
+  // Returns an object of { fieldKey: 'error message' } for the current step.
+  // Returns empty object if all required fields are filled.
   const validateStep = () => {
-    if (step === 0 && (!form.name || !form.age || !form.phone)) return 'Name, Age and Phone are required.'
-    if (step === 1 && !form.department) return 'Department is required.'
-    if (step === 2) return null
-    if (step === 3 && !form.consent_given) return 'Patient / Guardian consent is required before registration.'
-    return null
+    const errs = {}
+    if (step === 0) {
+      if (!form.name.trim())  errs.name  = 'Patient name is required'
+      if (!form.age)          errs.age   = 'Age is required'
+      if (!String(form.age).match(/^\d{1,3}$/) && form.age) errs.age = 'Enter a valid age (0–120)'
+      if (!form.phone.trim()) errs.phone = 'Mobile number is required'
+      if (form.phone && !/^[6-9]\d{9}$/.test(form.phone.trim())) errs.phone = 'Enter a valid 10-digit mobile number'
+    }
+    if (step === 1) {
+      if (!form.department) errs.department = 'Department is required'
+    }
+    if (step === 3) {
+      if (!form.consent_given) errs.consent_given = 'Patient / Guardian consent is required before registration'
+    }
+    return errs
   }
 
   const next = () => {
-    const err = validateStep()
-    if (err) { setError(err); return }
+    const errs = validateStep()
+    if (Object.keys(errs).length > 0) {
+      setFieldErrors(errs)
+      // Also set a concise top-level message so the user knows to scroll up
+      const count = Object.keys(errs).length
+      setError(`Please fill in the ${count} highlighted field${count > 1 ? 's' : ''} before continuing.`)
+      return
+    }
     setError(null)
+    setFieldErrors({})
     if (step < 3) setStep(s => s + 1)
     else submit()
   }
@@ -248,13 +286,13 @@ function RegisterModal({ doctors, onClose, onSave, patient = null }) {
             <div>
               <SectionHeader label="Basic Information" icon={UserCheck} />
               <div className="grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
-                <F label="Full Name" required span={2}><input className="form-input" placeholder="e.g. Priya Sharma" value={form.name} onChange={e => set('name', e.target.value)} /></F>
+                <F label="Full Name" required span={2} error={fieldErrors.name}><input className="form-input" placeholder="e.g. Priya Sharma" value={form.name} onChange={e => set('name', e.target.value)} /></F>
                 <F label="Admission Type" required>
                   <select className="form-input form-select" value={form.admission_type} onChange={e => set('admission_type', e.target.value)}>
                     {ADMISSION_TYPES.map(t => <option key={t}>{t}</option>)}
                   </select>
                 </F>
-                <F label="Age*"><input className="form-input" type="number" min="0" max="120" placeholder="Years" value={form.age} onChange={e => set('age', e.target.value)} /></F>
+                <F label="Age" required error={fieldErrors.age}><input className="form-input" type="number" min="0" max="120" placeholder="Years" value={form.age} onChange={e => set('age', e.target.value)} /></F>
                 <F label="Date of Birth"><input className="form-input" type="date" value={form.dob} onChange={e => set('dob', e.target.value)} /></F>
                 <F label="Gender">
                   <select className="form-input form-select" value={form.gender} onChange={e => set('gender', e.target.value)}>
@@ -282,7 +320,7 @@ function RegisterModal({ doctors, onClose, onSave, patient = null }) {
 
               <SectionHeader label="Contact Details" icon={Phone} color="#0d9488" />
               <div className="grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
-                <F label="Mobile Number" required><input className="form-input" type="tel" placeholder="10-digit mobile" value={form.phone} onChange={e => set('phone', e.target.value)} /></F>
+                <F label="Mobile Number" required error={fieldErrors.phone}><input className="form-input" type="tel" placeholder="10-digit mobile" value={form.phone} onChange={e => set('phone', e.target.value)} /></F>
                 <F label="Alternate Mobile"><input className="form-input" type="tel" placeholder="Optional" value={form.alt_phone} onChange={e => set('alt_phone', e.target.value)} /></F>
                 <F label="Email"><input className="form-input" type="email" placeholder="Optional" value={form.email} onChange={e => set('email', e.target.value)} /></F>
                 <F label="Address" span={2}><input className="form-input" placeholder="House No., Street, Area" value={form.address} onChange={e => set('address', e.target.value)} /></F>
@@ -319,7 +357,7 @@ function RegisterModal({ doctors, onClose, onSave, patient = null }) {
             <div>
               <SectionHeader label="Clinical Details" icon={Activity} />
               <div className="grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
-                <F label="Department" required span={1}>
+                <F label="Department" required span={1} error={fieldErrors.department}>
                   <select className="form-input form-select" value={form.department} onChange={e => set('department', e.target.value)}>
                     <option value="">Select department</option>
                     {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
@@ -443,7 +481,17 @@ function RegisterModal({ doctors, onClose, onSave, patient = null }) {
                     required: false,
                   },
                 ].map(({ key, title, desc, required }) => (
-                  <label key={key} style={{ display: 'flex', gap: '0.875rem', padding: '1rem', borderRadius: 'var(--radius-lg)', border: `1.5px solid ${form[key] ? 'var(--primary-300)' : 'var(--gray-200)'}`, background: form[key] ? 'var(--primary-50)' : '#fff', cursor: 'pointer', transition: 'all 150ms' }}>
+                  <label key={key} style={{
+                    display: 'flex', gap: '0.875rem', padding: '1rem',
+                    borderRadius: 'var(--radius-lg)',
+                    border: `1.5px solid ${
+                      key === 'consent_given' && fieldErrors.consent_given
+                        ? '#dc2626'
+                        : form[key] ? 'var(--primary-300)' : 'var(--gray-200)'
+                    }`,
+                    background: form[key] ? 'var(--primary-50)' : key === 'consent_given' && fieldErrors.consent_given ? 'rgba(239,68,68,0.04)' : '#fff',
+                    cursor: 'pointer', transition: 'all 150ms'
+                  }}>
                     <div style={{ width: 20, height: 20, borderRadius: 4, border: `2px solid ${form[key] ? 'var(--primary-600)' : 'var(--gray-300)'}`, background: form[key] ? 'var(--primary-600)' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
                       {form[key] && <CheckCircle size={13} color="#fff" />}
                     </div>
@@ -451,6 +499,9 @@ function RegisterModal({ doctors, onClose, onSave, patient = null }) {
                     <div>
                       <div style={{ fontWeight: 700, fontSize: '0.875rem', color: 'var(--gray-800)', marginBottom: '0.25rem' }}>{title}</div>
                       <div style={{ fontSize: '0.8rem', color: 'var(--gray-500)', lineHeight: 1.5 }}>{desc}</div>
+                      {key === 'consent_given' && fieldErrors.consent_given && (
+                        <div style={{ marginTop: '0.4rem', fontSize: '0.72rem', color: '#dc2626', fontWeight: 600 }}>⚠ {fieldErrors.consent_given}</div>
+                      )}
                     </div>
                   </label>
                 ))}
@@ -465,7 +516,10 @@ function RegisterModal({ doctors, onClose, onSave, patient = null }) {
             <span style={{ fontSize: '0.75rem', color: 'var(--gray-400)' }}>Step {step + 1} of {STEPS.length}</span>
           </div>
           <div style={{ display: 'flex', gap: '0.75rem' }}>
-            <button className="btn btn-secondary" onClick={() => { if (step > 0) { setStep(s => s - 1); setError(null) } else onClose() }}>
+            <button className="btn btn-secondary" onClick={() => {
+              if (step > 0) { setStep(s => s - 1); setError(null); setFieldErrors({}) }
+              else onClose()
+            }}>
               {step === 0 ? 'Cancel' : '← Back'}
             </button>
             <button className="btn btn-primary" onClick={next} disabled={saving}>
