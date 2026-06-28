@@ -76,8 +76,12 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
   }, [activeText])
 
   // ── Redraw user strokes only (NEVER draws _autofilled — those live on protectedCanvas) ──
+  // All stroke points are stored with xFrac/yFrac (0..1) so they render correctly
+  // at ANY zoom level without distortion.
   const redrawAll = useCallback((ctx, strokeList) => {
     if (!ctx || !canvasRef.current) return
+    const vw = viewportSize?.width || canvasRef.current.width
+    const vh = viewportSize?.height || canvasRef.current.height
     ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
     for (const stroke of strokeList) {
       // Auto-filled patient details are rendered on the protected canvas — never touch them here
@@ -88,8 +92,6 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
         const fontSize = (stroke.lineWidth || 2.7) * 6 * scale
         ctx.font = `bold ${fontSize}px "Inter", "Segoe UI", sans-serif`
         ctx.textBaseline = stroke._baselineY ? 'alphabetic' : 'top'
-        const vw = viewportSize?.width || 1
-        const vh = viewportSize?.height || 1
         const px = stroke.xFrac != null ? stroke.xFrac * vw : stroke.x
         const py = stroke.yFrac != null ? stroke.yFrac * vh : stroke.y
         const lines = String(stroke.content || '').split('\n')
@@ -99,26 +101,34 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
       }
       if (!stroke.points || stroke.points.length < 2) continue
       ctx.save()
+      // Resolve stroke width: scale the stored base width by current viewport
+      // relative to the viewport at which the stroke was originally drawn.
+      const storedVW = stroke.refVW || vw
+      const widthScale = vw / storedVW
+      const resolvedWidth = (stroke.width || 2.5) * widthScale
       if (stroke.tool === 'eraser') {
         ctx.globalCompositeOperation = 'destination-out'
         ctx.strokeStyle = 'rgba(0,0,0,1)'
-        ctx.lineWidth = stroke.width * 4
+        ctx.lineWidth = resolvedWidth * 4
       } else {
         ctx.globalCompositeOperation = 'source-over'
         ctx.strokeStyle = stroke.color || '#1a1a2e'
-        ctx.lineWidth = stroke.width || 2.5
+        ctx.lineWidth = resolvedWidth
         ctx.globalAlpha = 1
       }
       ctx.lineCap = 'round'
       ctx.lineJoin = 'round'
+      // Points are stored as fractions — resolve to current viewport coordinates
+      const getX = (p) => (p.xFrac != null ? p.xFrac * vw : p.x)
+      const getY = (p) => (p.yFrac != null ? p.yFrac * vh : p.y)
       ctx.beginPath()
-      ctx.moveTo(stroke.points[0].x, stroke.points[0].y)
+      ctx.moveTo(getX(stroke.points[0]), getY(stroke.points[0]))
       for (let i = 1; i < stroke.points.length; i++) {
         const prev = stroke.points[i - 1]
         const curr = stroke.points[i]
-        const cx = (prev.x + curr.x) / 2
-        const cy = (prev.y + curr.y) / 2
-        ctx.quadraticCurveTo(prev.x, prev.y, cx, cy)
+        const cx = (getX(prev) + getX(curr)) / 2
+        const cy = (getY(prev) + getY(curr)) / 2
+        ctx.quadraticCurveTo(getX(prev), getY(prev), cx, cy)
       }
       ctx.stroke()
       ctx.restore()
@@ -204,6 +214,9 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
     // Map DOM coordinates back to fixed viewport units (independent of DPI)
     const canvasX = (e.clientX - rect.left) * (viewportSize.width / rect.width)
     const canvasY = (e.clientY - rect.top) * (viewportSize.height / rect.height)
+    // Store fractions immediately — these remain stable across any zoom level change
+    const xFrac = canvasX / viewportSize.width
+    const yFrac = canvasY / viewportSize.height
 
     if (tool === 'hand') {
       // Hand tool allows for swiping/scrolling bubbling
@@ -226,7 +239,12 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
     const pressure = isStylus && e.pressure > 0 ? e.pressure : 1
     const width    = tool === 'eraser' ? lineWidth * 6 : lineWidth * (isStylus ? (0.5 + pressure * 1.5) : 1)
     const opacity  = 1  // always full opacity — matches how strokes look after redraw
-    const newStroke = { tool, color, width, opacity, points: [{ x: canvasX, y: canvasY }] }
+    // Points include both pixel coords (for live drawing) and fractions (for zoom-stable redraw)
+    const newStroke = {
+      tool, color, width, opacity,
+      refVW: viewportSize.width, // viewport width when stroke was started — used to scale width on redraw
+      points: [{ x: canvasX, y: canvasY, xFrac, yFrac }]
+    }
     currentStrokeRef.current = newStroke  // Set ref synchronously — available immediately in move events
     setCurrentStroke(newStroke)
   }, [tool, color, lineWidth, activeText, commitText, viewportSize])
@@ -241,10 +259,13 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
     // Guard: ensure viewportSize is ready
     if (!viewportSize) return
 
-    const canvasPos = {
-      x: (e.clientX - rect.left) * (viewportSize.width / rect.width),
-      y: (e.clientY - rect.top) * (viewportSize.height / rect.height)
-    }
+    const px = (e.clientX - rect.left) * (viewportSize.width / rect.width)
+    const py = (e.clientY - rect.top) * (viewportSize.height / rect.height)
+    // Fractions — zoom-stable representation of this point
+    const xFrac = px / viewportSize.width
+    const yFrac = py / viewportSize.height
+    const canvasPos = { x: px, y: py, xFrac, yFrac }
+
     // Stylus: pressure-sensitive WIDTH only. Mouse: fixed width. Both always full opacity.
     const isStylus = e.pointerType === 'pen'
     const pressure = isStylus && e.pressure > 0 ? e.pressure : 1
@@ -264,7 +285,7 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
       ctx.beginPath()
       const prev = lastPoint.current
       ctx.moveTo(prev.x, prev.y)
-      ctx.quadraticCurveTo(prev.x, prev.y, (prev.x + canvasPos.x) / 2, (prev.y + canvasPos.y) / 2)
+      ctx.quadraticCurveTo(prev.x, prev.y, (prev.x + px) / 2, (prev.y + py) / 2)
       ctx.stroke()
       ctx.restore()
     }
@@ -362,8 +383,9 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
     }
 
     // Normalize all strokes to fractions to ensure correct positioning during download
+    // Points already carry xFrac/yFrac from draw time, so this is mostly a safety pass.
     const normalized = finalStrokes.map(s => {
-      if (s.xFrac != null) return s // Already normalized (auto-fill)
+      if (s.xFrac != null) return { ...s, refScale: scale } // Already normalized (auto-fill or prior draw)
       const res = { ...s, refScale: scale } // Store the screen-scale used when created
       
       const width = viewportSize?.width || 1
@@ -373,11 +395,11 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
         res.xFrac = s.x / width
         res.yFrac = s.y / height
       } else if (s.points) {
-        // For freehand drawing, we normalize each point
+        // Ensure every point has fractions (they should already, but guard for legacy data)
         res.points = s.points.map(p => ({
           x: p.x, y: p.y,
-          xFrac: p.x / width,
-          yFrac: p.y / height
+          xFrac: p.xFrac ?? (p.x / width),
+          yFrac: p.yFrac ?? (p.y / height)
         }))
       }
       return res
