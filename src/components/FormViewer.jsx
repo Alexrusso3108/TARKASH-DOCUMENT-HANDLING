@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext'
 
 // ─── Ink Canvas ──────────────────────────────────────────────────────────────
 // InkCanvas — canErase controls whether eraser/undo/clear tools are available
-const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, viewportSize, onSave, canErase, allowDrawing = true, scale = 1, onSwipeLeft, onSwipeRight, onDirtyChange }, ref) {
+const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, externalAnnotations, pdfPage, viewportSize, onSave, canErase, allowDrawing = true, scale = 1, onSwipeLeft, onSwipeRight, onDirtyChange, onPinchZoom }, ref) {
   const canvasRef = useRef(null)
   const protectedCanvasRef = useRef(null) // Separate layer for auto-filled patient data — immune to eraser
   const protectedCtxRef = useRef(null)
@@ -27,11 +27,61 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
   const ctxRef = useRef(null)
   const [activeText, setActiveText] = useState(null) // {x, y, content}
   const textInputRef = useRef(null)
+  const scrollContainerRef = useRef(null) // ref for pinch-to-zoom touch listeners
 
   // Notify parent whenever the canvas becomes dirty (unsaved) or clean (saved)
   useEffect(() => {
     if (onDirtyChange) onDirtyChange(!saved)
   }, [saved, onDirtyChange])
+
+  // ── Pinch-to-zoom: non-passive touch listeners on the scroll container ────────
+  // Must use addEventListener (not JSX) so we can call preventDefault() in touchmove.
+  useEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el || !onPinchZoom) return
+
+    let lastDist = null
+
+    const getPinchDist = (touches) => {
+      const dx = touches[0].clientX - touches[1].clientX
+      const dy = touches[0].clientY - touches[1].clientY
+      return Math.sqrt(dx * dx + dy * dy)
+    }
+
+    const onTouchStart = (e) => {
+      if (e.touches.length === 2) {
+        lastDist = getPinchDist(e.touches)
+      }
+    }
+
+    const onTouchMove = (e) => {
+      if (e.touches.length !== 2 || lastDist === null) return
+      // Stop browser from doing its own pinch-zoom / scroll during our gesture
+      e.preventDefault()
+      const newDist = getPinchDist(e.touches)
+      if (newDist > 0 && lastDist > 0) {
+        const ratio = newDist / lastDist
+        onPinchZoom(ratio)
+      }
+      lastDist = newDist
+    }
+
+    const onTouchEnd = (e) => {
+      if (e.touches.length < 2) lastDist = null
+    }
+
+    el.addEventListener('touchstart',  onTouchStart, { passive: true })
+    el.addEventListener('touchmove',   onTouchMove,  { passive: false }) // passive:false so preventDefault works
+    el.addEventListener('touchend',    onTouchEnd,   { passive: true })
+    el.addEventListener('touchcancel', onTouchEnd,   { passive: true })
+
+    return () => {
+      el.removeEventListener('touchstart',  onTouchStart)
+      el.removeEventListener('touchmove',   onTouchMove)
+      el.removeEventListener('touchend',    onTouchEnd)
+      el.removeEventListener('touchcancel', onTouchEnd)
+    }
+  }, [onPinchZoom])
 
   // When parent injects auto-fill annotations, MERGE them (don't replace user strokes)
   useEffect(() => {
@@ -498,6 +548,7 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
 
       {/* Canvas area — scrollable, PDF centered via margin:auto (alignItems:center breaks scroll) */}
       <div 
+        ref={scrollContainerRef}
         className="pdf-scroll-container"
         style={{ 
           overflowX: 'hidden', 
@@ -508,7 +559,7 @@ const InkCanvas = forwardRef(function InkCanvas({ formId, initialAnnotations, ex
           alignItems: 'flex-start',
           scrollbarWidth: 'auto',
           scrollbarColor: 'rgba(99, 102, 241, 0.75) rgba(30, 41, 59, 0.4)',
-          touchAction: 'pan-y'
+          touchAction: 'pan-y',  // 1-finger → native vertical scroll; 2-finger pinch → our handler
         }}
       >
         <div style={{ position: 'relative', display: 'inline-block', lineHeight: 0, margin: 'auto' }}>
@@ -1700,6 +1751,10 @@ export default function FormViewer({ formInstance, allForms = [], patientData, o
                 onSwipeRight={goToPrev}
                 onDirtyChange={setIsDirty}
                 externalAnnotations={autoFilled ? annotations.filter(s => s.page === page && s._autofilled) : undefined}
+                onPinchZoom={(ratio) => setScale(s => {
+                  const next = Math.max(0.4, Math.min(3, s * ratio))
+                  return Math.round(next * 100) / 100  // round to 2dp to avoid float drift
+                })}
               />
               
               {/* Pagination UI Arrows (Clickable on Laptop) */}
